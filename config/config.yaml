@@ -1,0 +1,35 @@
+app:
+  name: "TIGRESS"
+  log_level: INFO
+  data_directory: "./data"
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+
+sensors:
+  enabled:
+    - wifi
+    - phone
+  wifi:
+    scan_interval: 30
+    alert_threshold: 3
+    known_bssids_file: "data/known_bssids.txt"
+  phone:
+    sensor_type: accelerometer
+    sample_rate: 1.0
+    tamper_threshold: 2.0
+    stability_samples: 10
+
+detection:
+  confidence_threshold: 0.6
+  rules_file: config/rules.yaml
+  ml_models:
+    wifi_anomaly: "models/wifi_anomaly.pkl"
+    phone_anomaly: "models/phone_anomaly.pkl"
+  training_samples: 300
+
+alerting:
+  notification: true
+  log_file: data/alerts/tigress.log
+  forensic_log: data/alerts/forensic.jsonl
