@@ -25,6 +25,8 @@ def test_ssl_options_provides_hardened_mtls_context(tmp_path):
     assert isinstance(ctx, ssl.SSLContext)
     assert ctx.verify_mode == ssl.CERT_REQUIRED
     assert ctx.minimum_version == ssl.TLSVersion.TLSv1_3
+    assert ctx.options & ssl.OP_NO_TICKET, "OP_NO_TICKET not set"
+    assert ctx.options & ssl.OP_NO_COMPRESSION, "OP_NO_COMPRESSION not set"
 
     for name in ("ca.crt", "server.crt", "server.key"):
         assert os.path.exists(tmp_path / "certs" / name), f"{name} was not generated"
