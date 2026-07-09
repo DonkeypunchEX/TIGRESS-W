@@ -43,10 +43,29 @@ bash scripts/tigress_launcher.sh --dummy
 The dashboard listens on the host/port from the `server` section of
 `config/config.yaml` (default `127.0.0.1:8080`).
 
+## Dashboard API
+The dashboard exposes read-only JSON endpoints:
+
+| Endpoint | Description |
+| -------- | ----------- |
+| `GET /` | Status and sensor list |
+| `GET /sensors` | Per-sensor status |
+| `GET /health` | Liveness probe |
+| `GET /detections` | Recent detections, newest first. Query params: `limit`, `min_severity` (1-5), `sensor_type` (`wifi`/`phone`) |
+| `GET /detections/summary` | Counts of recent detections by severity and sensor type |
+
+Example:
+```bash
+curl "http://127.0.0.1:8080/detections?min_severity=4&limit=20"
+curl "http://127.0.0.1:8080/detections/summary"
+```
+
 ## Configuration
 `config/config.yaml` controls sensors, detection thresholds, and alerting.
 Per-sensor `buffer_limit` (default 1000) caps how many recent readings each
-sensor keeps in memory. Detection rules live in `config/rules.yaml`.
+sensor keeps in memory. `alerting.history_size` (default 500) caps how many
+recent detections are held in memory for the `/detections` API. Detection rules
+live in `config/rules.yaml`.
 
 ## Models
 Trained models are saved to `models/`. Delete them to retrain. The engine falls

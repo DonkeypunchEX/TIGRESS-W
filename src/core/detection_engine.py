@@ -16,6 +16,7 @@ import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
+from src.core.detection_store import DetectionStore
 from src.utils.config_loader import ConfigLoader
 from src.utils.forensic_logger import ForensicLogger
 from src.utils.logger import get_logger
@@ -51,9 +52,11 @@ class DetectionEngine:
         self.training_mode = training_mode
 
         self._rules = ConfigLoader.load_yaml(det.get("rules_file", "config/rules.yaml"))
+        alerting = self.config.get("alerting", {})
         self.forensic = ForensicLogger(
-            self.config.get("alerting", {}).get("forensic_log", "data/alerts/forensic.jsonl")
+            alerting.get("forensic_log", "data/alerts/forensic.jsonl")
         )
+        self.history = DetectionStore(max_size=alerting.get("history_size", 500))
 
         self._models: Dict[str, IsolationForest] = {}
         self._scalers: Dict[str, StandardScaler] = {}
@@ -104,6 +107,7 @@ class DetectionEngine:
     def _dispatch(self, detections: List[Detection]):
         for d in detections:
             self.forensic.log("detection", d.__dict__)
+            self.history.add(d.__dict__)
             emoji = {5: "🔴", 4: "🟠", 3: "🟡"}.get(d.severity, "⚪")
             notifier.send(
                 title=f"{emoji} TIGRESS – Severity {d.severity}/5",

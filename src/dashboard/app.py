@@ -2,7 +2,7 @@
 
 import argparse
 from contextlib import asynccontextmanager
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI
@@ -43,6 +43,32 @@ def sensors():
 def health():
     """Liveness probe reporting whether sensors are running."""
     return {"ok": True, "sensors_running": _manager.is_running if _manager else False}
+
+
+@app.get("/detections")
+def detections(
+    limit: int = 50,
+    min_severity: int = 1,
+    sensor_type: Optional[str] = None,
+):
+    """Return recent detections, newest first, with optional filters.
+
+    Query params: ``limit`` (max results), ``min_severity`` (1-5), and
+    ``sensor_type`` (e.g. ``wifi`` or ``phone``).
+    """
+    if not _manager:
+        return []
+    return _manager.detection_engine.history.recent(
+        limit=limit, min_severity=min_severity, sensor_type=sensor_type
+    )
+
+
+@app.get("/detections/summary")
+def detections_summary():
+    """Return counts of recent detections by severity and sensor type."""
+    if not _manager:
+        return {"total": 0, "by_severity": {}, "by_sensor_type": {}}
+    return _manager.detection_engine.history.summary()
 
 
 def _ssl_options(secure: bool, server: Dict[str, Any]) -> Dict[str, Any]:
