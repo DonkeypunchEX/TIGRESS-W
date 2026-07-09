@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import joblib
@@ -68,6 +69,7 @@ class DetectionEngine:
     def _save_model(self, stype: str):
         path = self._model_paths.get(stype)
         if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
             joblib.dump(self._models[stype], path)
             joblib.dump(self._scalers[stype], path + ".scaler")
             logger.info(f"Saved {stype} model")

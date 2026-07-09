@@ -25,8 +25,8 @@ detection:
   confidence_threshold: 0.6
   rules_file: config/rules.yaml
   ml_models:
-    wifi_anomaly: "models/wifi_anomaly.pkl"
-    phone_anomaly: "models/phone_anomaly.pkl"
+    wifi: "models/wifi_anomaly.pkl"
+    phone: "models/phone_anomaly.pkl"
   training_samples: 300
 
 alerting:
