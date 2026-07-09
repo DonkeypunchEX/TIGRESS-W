@@ -1,4 +1,5 @@
 import json
+import ssl
 
 import pytest
 
@@ -6,6 +7,7 @@ import pytest
 pytest.importorskip("cryptography")
 
 from src.security.audit_log import AuditLog
+from src.security.secure_communication import SecureChannel
 from src.security.secure_config import SecureConfig, SecurityError
 
 # --------------------------------------------------------------------------- #
@@ -77,3 +79,28 @@ def test_secure_config_detects_ciphertext_tamper(tmp_path):
 
     with pytest.raises(SecurityError):
         store.load(config_id)
+
+
+# --------------------------------------------------------------------------- #
+# SecureChannel: mutual TLS certificate management
+# --------------------------------------------------------------------------- #
+
+def test_secure_channel_generates_ca_and_server_certs(tmp_path):
+    cert_dir = tmp_path / "certs"
+    SecureChannel(cert_dir=str(cert_dir))
+    for name in ("ca.crt", "server.crt", "server.key"):
+        assert (cert_dir / name).exists()
+
+
+def test_secure_channel_context_requires_client_cert(tmp_path):
+    channel = SecureChannel(cert_dir=str(tmp_path / "certs"))
+    ctx = channel.get_ssl_context("server")
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.minimum_version == ssl.TLSVersion.TLSv1_3
+
+
+def test_secure_channel_reuses_existing_ca(tmp_path):
+    cert_dir = tmp_path / "certs"
+    first = (SecureChannel(cert_dir=str(cert_dir)).cert_dir / "ca.crt").read_bytes()
+    second = (SecureChannel(cert_dir=str(cert_dir)).cert_dir / "ca.crt").read_bytes()
+    assert first == second  # a second run must not regenerate the CA
