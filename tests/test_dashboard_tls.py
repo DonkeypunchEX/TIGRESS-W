@@ -15,8 +15,18 @@ def test_ssl_options_empty_when_insecure():
     assert app._ssl_options(False, {}) == {}
 
 
-def test_ssl_options_enables_mtls(tmp_path):
+def test_ssl_options_provides_hardened_mtls_context(tmp_path):
     opts = app._ssl_options(True, {"cert_dir": str(tmp_path / "certs")})
-    assert opts["ssl_cert_reqs"] == ssl.CERT_REQUIRED
-    for key in ("ssl_certfile", "ssl_keyfile", "ssl_ca_certs"):
-        assert os.path.exists(opts[key]), f"{key} was not generated"
+    assert set(opts) == {"ssl_context_factory"}
+
+    # uvicorn calls the factory as factory(config, default_factory); the returned
+    # context must preserve SecureChannel's hardening, not uvicorn's defaults.
+    ctx = opts["ssl_context_factory"](None, None)
+    assert isinstance(ctx, ssl.SSLContext)
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.minimum_version == ssl.TLSVersion.TLSv1_3
+    assert ctx.options & ssl.OP_NO_TICKET, "OP_NO_TICKET not set"
+    assert ctx.options & ssl.OP_NO_COMPRESSION, "OP_NO_COMPRESSION not set"
+
+    for name in ("ca.crt", "server.crt", "server.key"):
+        assert os.path.exists(tmp_path / "certs" / name), f"{name} was not generated"

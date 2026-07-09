@@ -1,7 +1,6 @@
 """FastAPI dashboard exposing sensor status and health endpoints."""
 
 import argparse
-import ssl
 from contextlib import asynccontextmanager
 from typing import Any, Dict
 
@@ -50,8 +49,11 @@ def _ssl_options(secure: bool, server: Dict[str, Any]) -> Dict[str, Any]:
     """Build uvicorn TLS/mTLS keyword arguments.
 
     When ``secure`` is set, generate (or reuse) the CA and server certificate
-    via :class:`SecureChannel` and return uvicorn kwargs that serve HTTPS and
-    require a client certificate signed by the TIGRESS CA (mutual TLS).
+    via :class:`SecureChannel` and serve the dashboard over mutual TLS. The
+    already-hardened context from ``SecureChannel.get_ssl_context`` (TLS 1.3
+    minimum, no session tickets, no compression, client certificate required)
+    is passed through uvicorn's ``ssl_context_factory`` so uvicorn uses it
+    verbatim instead of rebuilding a weaker context from the certificate files.
     Returns an empty dict when ``secure`` is false (plain HTTP).
     """
     if not secure:
@@ -60,13 +62,13 @@ def _ssl_options(secure: bool, server: Dict[str, Any]) -> Dict[str, Any]:
     from src.security.secure_communication import SecureChannel
 
     channel = SecureChannel(cert_dir=server.get("cert_dir", "certs"))
-    cert_dir = channel.cert_dir
-    return {
-        "ssl_certfile": str(cert_dir / "server.crt"),
-        "ssl_keyfile": str(cert_dir / "server.key"),
-        "ssl_ca_certs": str(cert_dir / "ca.crt"),
-        "ssl_cert_reqs": ssl.CERT_REQUIRED,
-    }
+
+    def ssl_context_factory(*_args: Any):
+        # uvicorn invokes this as factory(config, default_factory); ignore both
+        # and hand back SecureChannel's hardened, client-cert-requiring context.
+        return channel.get_ssl_context("server")
+
+    return {"ssl_context_factory": ssl_context_factory}
 
 
 def main():

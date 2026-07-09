@@ -7,7 +7,7 @@ joblib>=1.3
 # Config and dashboard
 PyYAML>=6.0
 fastapi>=0.110
-uvicorn>=0.29
+uvicorn>=0.34  # ssl_context_factory support
 
 # Security modules
 cryptography>=41.0
