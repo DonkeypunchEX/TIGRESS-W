@@ -50,6 +50,15 @@ def test_training_accumulates_one_sample_per_call(config_path):
     assert os.path.exists(engine._model_paths["wifi"])  # _save_model created the dir
 
 
+def test_detections_are_recorded_in_history(engine):
+    assert len(engine.history) == 0
+    detections = engine.analyze_wifi([_wifi_scan(ssid="EvilTwin", new_ap_count=9)])
+    assert len(detections) > 0
+    recorded = engine.history.recent()
+    assert len(recorded) == len(detections)
+    assert {d["id"] for d in recorded} == {d.id for d in detections}
+
+
 def test_phone_tamper_rule(engine):
     dp = {
         "tamper_suspect": True,

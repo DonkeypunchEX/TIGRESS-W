@@ -33,3 +33,4 @@ alerting:
   notification: true
   log_file: data/alerts/tigress.log
   forensic_log: data/alerts/forensic.jsonl
+  history_size: 500          # recent detections kept in memory for the API
