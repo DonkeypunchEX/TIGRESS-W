@@ -54,13 +54,24 @@ The dashboard exposes read-only JSON endpoints:
 | `GET /` | Status and sensor list |
 | `GET /sensors` | Per-sensor status |
 | `GET /health` | Liveness probe |
-| `GET /detections` | Recent detections, newest first. Query params: `limit`, `min_severity` (1-5), `sensor_type` (`wifi`/`phone`) |
+| `GET /detections` | Recent detections, newest first. Query params: `limit`, `min_severity` (1-5), `sensor_type` (`wifi`/`phone`/`bluetooth`) |
 | `GET /detections/summary` | Counts of recent detections by severity and sensor type |
+
+### Authentication
+The data endpoints (`/`, `/sensors`, `/detections`, `/detections/summary`) can
+require a bearer token. Set `server.api_token` in the config **or** the
+`TIGRESS_API_TOKEN` environment variable; when set, requests without a valid
+`Authorization: Bearer <token>` header get `401`. `/health` is always open for
+liveness probes. If neither a token nor `--secure` (mTLS) is configured, the
+dashboard logs a warning that it is serving data unauthenticated.
 
 Example:
 ```bash
-curl "http://127.0.0.1:8080/detections?min_severity=4&limit=20"
-curl "http://127.0.0.1:8080/detections/summary"
+export TIGRESS_API_TOKEN=s3cr3t
+curl -H "Authorization: Bearer $TIGRESS_API_TOKEN" \
+  "http://127.0.0.1:8080/detections?min_severity=4&limit=20"
+curl -H "Authorization: Bearer $TIGRESS_API_TOKEN" \
+  "http://127.0.0.1:8080/detections/summary"
 ```
 
 ## Alert Channels

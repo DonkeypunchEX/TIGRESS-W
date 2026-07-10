@@ -6,6 +6,7 @@ app:
 server:
   host: "127.0.0.1"
   port: 8080
+  api_token: ""   # if set (or via TIGRESS_API_TOKEN), data endpoints require Bearer auth
 
 sensors:
   enabled:
