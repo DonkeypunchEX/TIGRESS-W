@@ -8,6 +8,7 @@ failures in one channel never block the others.
 
 import json
 import logging
+import os
 import smtplib
 import ssl
 import urllib.request
@@ -68,6 +69,9 @@ class WebhookChannel(AlertChannel):
         if not self.url:
             logger.warning("Webhook channel enabled but no url configured")
             return False
+        if not self.url.startswith(("http://", "https://")):
+            logger.warning(f"Webhook url must use http/https, got: {self.url}")
+            return False
         payload = json.dumps({
             "source": "TIGRESS",
             "title": title,
@@ -108,7 +112,8 @@ class EmailChannel(AlertChannel):
         self.smtp_host = smtp_host
         self.smtp_port = int(smtp_port)
         self.username = username
-        self.password = password
+        # Prefer an env var so the password need not live in the config file.
+        self.password = password or os.environ.get("TIGRESS_SMTP_PASSWORD")
         self.sender = sender or username or "tigress@localhost"
         self.recipients = list(recipients or [])
         self.use_tls = use_tls
@@ -189,14 +194,22 @@ class AlertDispatcher:
         a failure and does not prevent other channels from firing.
         """
         results: Dict[str, bool] = {}
+        seen: Dict[str, int] = {}
         for channel in self.channels:
             if severity < channel.min_severity:
                 continue
+            # Disambiguate duplicate channel names so results never overwrite.
+            if sum(1 for c in self.channels if c.name == channel.name) > 1:
+                idx = seen.get(channel.name, 0)
+                seen[channel.name] = idx + 1
+                key = f"{channel.name}[{idx}]"
+            else:
+                key = channel.name
             try:
-                results[channel.name] = channel.send(title, content, severity)
+                results[key] = channel.send(title, content, severity)
             except Exception as e:
                 logger.error(f"Alert channel '{channel.name}' raised: {e}")
-                results[channel.name] = False
+                results[key] = False
         return results
 
     @property

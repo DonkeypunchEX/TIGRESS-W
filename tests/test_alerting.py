@@ -51,6 +51,15 @@ def test_dispatch_respects_min_severity():
     assert low.calls and not high.calls
 
 
+def test_dispatch_disambiguates_duplicate_channel_names():
+    a = _RecordingChannel()
+    b = _RecordingChannel()
+    disp = AlertDispatcher([a, b])  # both named "recording"
+    results = disp.dispatch("t", "c", severity=5)
+    assert set(results) == {"recording[0]", "recording[1]"}
+    assert a.calls and b.calls
+
+
 def test_dispatch_isolates_failing_channels():
     class _Boom(AlertChannel):
         name = "boom"
@@ -135,6 +144,13 @@ def test_webhook_channel_without_url_is_noop():
     assert WebhookChannel("").send("t", "c", 5) is False
 
 
+def test_webhook_channel_rejects_non_http_scheme(monkeypatch):
+    called = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: called.append(1))
+    assert WebhookChannel("file:///etc/passwd").send("t", "c", 5) is False
+    assert not called  # urlopen must never be reached for a non-http scheme
+
+
 # --------------------------------------------------------------------------- #
 # EmailChannel
 # --------------------------------------------------------------------------- #
@@ -174,3 +190,12 @@ def test_email_channel_sends(monkeypatch):
 def test_email_channel_requires_host_and_recipients():
     assert EmailChannel(smtp_host="", recipients=["a@b"]).send("t", "c", 5) is False
     assert EmailChannel(smtp_host="smtp.x", recipients=[]).send("t", "c", 5) is False
+
+
+def test_email_password_falls_back_to_env(monkeypatch):
+    monkeypatch.setenv("TIGRESS_SMTP_PASSWORD", "from-env")
+    ch = EmailChannel(smtp_host="smtp.x", recipients=["a@b"])  # no password arg
+    assert ch.password == "from-env"
+    # an explicit password still wins over the env var
+    ch2 = EmailChannel(smtp_host="smtp.x", recipients=["a@b"], password="explicit")
+    assert ch2.password == "explicit"

@@ -81,13 +81,14 @@ alerting:
       smtp_host: "smtp.example.com"
       smtp_port: 587
       username: "tigress@example.com"
-      password: "app-password"
+      password: "app-password"     # or leave blank and set TIGRESS_SMTP_PASSWORD
       from: "tigress@example.com"
       to: ["soc@example.com"]
       min_severity: 4
 ```
 
-A failing channel never blocks the others. Omit the `channels` block entirely
+The SMTP password may be supplied via the `TIGRESS_SMTP_PASSWORD` environment
+variable instead of the config file. A failing channel never blocks the others. Omit the `channels` block entirely
 to keep the previous Termux-only behaviour.
 
 ## Configuration
@@ -112,7 +113,8 @@ security:
   monitor_interval: 30               # seconds between checks
 ```
 
-Alarms are written to `data/alerts/tamper.log` and pushed via `termux-notification`.
+Alarms are written to `data/alerts/tamper.log` and dispatched through the
+configured [alert channels](#alert-channels) (Termux, webhook, and/or email).
 
 ## Models
 Trained models are saved to `models/`. Delete them to retrain. The engine falls

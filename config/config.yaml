@@ -48,7 +48,7 @@ alerting:
       smtp_host: ""
       smtp_port: 587
       username: ""
-      password: ""
+      password: ""         # or leave blank and set the TIGRESS_SMTP_PASSWORD env var
       from: "tigress@localhost"
       to: []
       use_tls: true
