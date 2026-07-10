@@ -130,11 +130,17 @@ class RuntimeProtection:
             if not self.verify_no_debugger():
                 self._alarm("Debugger detected")
             if self._monitor_processes:
-                before = len(self.violations)
-                if not self.verify_processes():
-                    new = self.violations[before:]
-                    self._alarm("Unexpected process(es): " + ", ".join(new))
+                self._check_processes()
             time.sleep(interval)
+
+    def _check_processes(self):
+        """Run the process check and alarm (once) on any new process names."""
+        before = len(self.violations)
+        if not self.verify_processes():
+            # verify_processes records "Unexpected process appeared: <name>";
+            # extract just the names so the alarm text isn't doubled up.
+            names = [v.split(": ", 1)[-1] for v in self.violations[before:]]
+            self._alarm("Unexpected process(es): " + ", ".join(names))
 
     def _alarm(self, reason: str):
         logger.critical(f"TAMPER ALARM: {reason}")

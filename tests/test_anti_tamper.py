@@ -84,3 +84,16 @@ def test_verify_processes_no_false_alarm_when_enumeration_empty(tmp_path, monkey
     rp = _rp(tmp_path, monitor_processes=True)
     monkeypatch.setattr(rp, "_current_process_names", set)
     assert rp.verify_processes() is True
+
+
+def test_process_alarm_message_lists_names_without_redundant_prefix(tmp_path, monkeypatch):
+    rp = _rp(tmp_path, monitor_processes=True)
+    seq = iter([{"python"}, {"python", "nc"}])
+    monkeypatch.setattr(rp, "_current_process_names", lambda: next(seq))
+
+    alarms = []
+    monkeypatch.setattr(rp, "_alarm", lambda reason: alarms.append(reason))
+
+    rp._check_processes()  # establishes baseline, no alarm
+    rp._check_processes()  # "nc" appears
+    assert alarms == ["Unexpected process(es): nc"]
