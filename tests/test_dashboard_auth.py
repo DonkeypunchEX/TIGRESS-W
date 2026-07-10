@@ -1,0 +1,55 @@
+from types import SimpleNamespace
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("uvicorn")
+pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient
+
+from src.core.detection_store import DetectionStore
+from src.dashboard import app as appmod
+
+
+@pytest.fixture
+def client(monkeypatch):
+    store = DetectionStore()
+    store.add({"id": "a", "severity": 5, "sensor_type": "wifi"})
+    manager = SimpleNamespace(
+        detection_engine=SimpleNamespace(history=store),
+        list_sensors=lambda: [],
+        is_running=True,
+    )
+    monkeypatch.setattr(appmod, "_manager", manager)
+    return TestClient(appmod.app)
+
+
+def test_open_when_no_token(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", None)
+    assert client.get("/detections").status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_protected_endpoints_require_token(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
+    for path in ("/", "/sensors", "/detections", "/detections/summary"):
+        assert client.get(path).status_code == 401, path
+
+
+def test_valid_token_grants_access(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
+    r = client.get("/detections", headers={"Authorization": "Bearer s3cr3t"})
+    assert r.status_code == 200
+    assert r.json()[0]["id"] == "a"
+
+
+def test_wrong_token_rejected(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
+    r = client.get("/detections", headers={"Authorization": "Bearer nope"})
+    assert r.status_code == 401
+
+
+def test_health_is_always_open(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
+    assert client.get("/health").status_code == 200

@@ -1,11 +1,13 @@
 """FastAPI dashboard exposing sensor status and health endpoints."""
 
 import argparse
+import hmac
+import os
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 
 from src.core.sensor_manager import SensorManager
@@ -14,6 +16,8 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 _manager: SensorManager = None
+#: Bearer token required for data endpoints; None disables auth (set in main()).
+_api_token: Optional[str] = None
 
 
 @asynccontextmanager
@@ -27,13 +31,26 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="TIGRESS", lifespan=lifespan)
 
 
-@app.get("/")
+def _require_token(authorization: Optional[str] = Header(default=None)):
+    """Enforce bearer-token auth when a token is configured.
+
+    A no-op when no token is set (``_api_token`` is None), preserving the
+    previous open behaviour. Comparison is constant-time.
+    """
+    if not _api_token:
+        return
+    expected = f"Bearer {_api_token}"
+    if authorization is None or not hmac.compare_digest(authorization, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.get("/", dependencies=[Depends(_require_token)])
 def root():
     """Root endpoint: overall status and sensor list."""
     return {"status": "running", "sensors": _manager.list_sensors() if _manager else []}
 
 
-@app.get("/sensors")
+@app.get("/sensors", dependencies=[Depends(_require_token)])
 def sensors():
     """Return per-sensor status."""
     return JSONResponse(_manager.list_sensors())
@@ -41,11 +58,11 @@ def sensors():
 
 @app.get("/health")
 def health():
-    """Liveness probe reporting whether sensors are running."""
+    """Liveness probe reporting whether sensors are running (no auth required)."""
     return {"ok": True, "sensors_running": _manager.is_running if _manager else False}
 
 
-@app.get("/detections")
+@app.get("/detections", dependencies=[Depends(_require_token)])
 def detections(
     limit: int = 50,
     min_severity: int = 1,
@@ -63,7 +80,7 @@ def detections(
     )
 
 
-@app.get("/detections/summary")
+@app.get("/detections/summary", dependencies=[Depends(_require_token)])
 def detections_summary():
     """Return counts of recent detections by severity and sensor type."""
     if not _manager:
@@ -99,7 +116,7 @@ def _ssl_options(secure: bool, server: Dict[str, Any]) -> Dict[str, Any]:
 
 def main():
     """CLI entry point: parse flags, build the manager, and run the server."""
-    global _manager
+    global _manager, _api_token
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dummy",  action="store_true", help="Use synthetic sensors")
@@ -118,9 +135,18 @@ def main():
         start_runtime_protection(_manager.config)
 
     server = _manager.config.get("server", {})
+    _api_token = server.get("api_token") or os.environ.get("TIGRESS_API_TOKEN")
+
     ssl_options = _ssl_options(args.secure, server)
     if ssl_options:
         logger.info("Serving dashboard over mutual TLS (client certificate required)")
+    if _api_token:
+        logger.info("Dashboard data endpoints require a bearer token")
+    elif not ssl_options:
+        logger.warning(
+            "Dashboard is serving detection data without authentication; set "
+            "server.api_token / TIGRESS_API_TOKEN or run with --secure (mTLS)."
+        )
 
     uvicorn.run(
         app,
