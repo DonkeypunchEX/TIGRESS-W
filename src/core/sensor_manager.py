@@ -85,7 +85,8 @@ class SensorManager:
 
     @property
     def is_running(self) -> bool:
-        """Whether the sensor threads are currently running."""
+        """Whether the manager is started (set by ``start_all``, cleared by
+        ``stop_all``); does not guarantee any sensor actually connected."""
         return self._running
 
     def _on_data(self, sid: str, dp: dict):

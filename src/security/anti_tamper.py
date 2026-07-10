@@ -51,7 +51,11 @@ class RuntimeProtection:
         return {p: hashlib.sha512(p.read_bytes()).hexdigest() for p in self.critical_files if p.exists()}
 
     def verify_files(self) -> bool:
-        """Return True if no critical file was modified or removed."""
+        """Return True if no baselined critical file was modified or removed.
+
+        Only files that existed when this instance was created are baselined;
+        files already missing at startup are not tracked.
+        """
         current = self._hash_files()
         for path, original in self._baseline_hashes.items():
             if path not in current:
@@ -63,7 +67,11 @@ class RuntimeProtection:
         return True
 
     def verify_no_debugger(self) -> bool:
-        """Return True if no debugger is attached (TracerPid == 0)."""
+        """Return True if no debugger is attached.
+
+        Reads TracerPid from /proc; if that cannot be read (OSError) the check
+        fails open and returns True (undetectable is treated as no debugger).
+        """
         try:
             status = Path(f"/proc/{os.getpid()}/status").read_text()
             for line in status.splitlines():
