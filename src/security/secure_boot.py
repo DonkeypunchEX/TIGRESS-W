@@ -24,10 +24,12 @@ TIGRESS_CORE_FILES = [
 
 
 class SecureBoot:
+    """Boot-time measurement and manifest signing/verification."""
     def __init__(self, manifest_path: str = "config/manifest.json"):
         self.manifest_path = Path(manifest_path)
 
     def measure(self) -> Dict[str, str]:
+        """Hash the kernel, interpreter, and core files into a measurement map."""
         measurements: Dict[str, str] = {}
         try:
             measurements["kernel"] = hashlib.sha512(Path("/proc/version").read_bytes()).hexdigest()
@@ -43,6 +45,7 @@ class SecureBoot:
         return measurements
 
     def create_manifest(self, output_path: Optional[str] = None):
+        """Measure the system and write a signed boot manifest."""
         measurements = self.measure()
         manifest = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -55,6 +58,7 @@ class SecureBoot:
         logger.info(f"Boot manifest written to {out}")
 
     def verify_manifest(self) -> bool:
+        """Return True if current measurements match the stored manifest."""
         if not self.manifest_path.exists():
             logger.warning("No boot manifest found — run harden.sh first")
             return False

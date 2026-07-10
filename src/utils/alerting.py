@@ -45,6 +45,7 @@ class TermuxChannel(AlertChannel):
         self._notifier = notifier or _default_notifier
 
     def send(self, title: str, content: str, severity: int) -> bool:
+        """Deliver via termux-notification, mapping severity to priority."""
         priority = "max" if severity >= 5 else "high" if severity >= 4 else "default"
         return self._notifier.send(
             title=title,
@@ -66,6 +67,7 @@ class WebhookChannel(AlertChannel):
         self.timeout = timeout
 
     def send(self, title: str, content: str, severity: int) -> bool:
+        """POST the alert as JSON to the configured webhook URL."""
         if not self.url:
             logger.warning("Webhook channel enabled but no url configured")
             return False
@@ -120,6 +122,7 @@ class EmailChannel(AlertChannel):
         self.timeout = timeout
 
     def send(self, title: str, content: str, severity: int) -> bool:
+        """Send the alert as an email over SMTP."""
         if not self.smtp_host or not self.recipients:
             logger.warning("Email channel enabled but smtp_host/recipients missing")
             return False
@@ -214,4 +217,5 @@ class AlertDispatcher:
 
     @property
     def channel_names(self) -> List[str]:
+        """Names of the configured channels, in order."""
         return [c.name for c in self.channels]

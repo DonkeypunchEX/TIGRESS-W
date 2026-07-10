@@ -132,9 +132,11 @@ print(AuditLog().verify_integrity())
 ```bash
 pip install -r requirements-dev.txt
 pytest
+ruff check src tests
 ```
 The test suite is hermetic — it writes only to pytest temp directories and does
-not require real sensors or Termux.
+not require real sensors or Termux. `ruff` lints the code and enforces docstrings
+on the `src/` package (see `ruff.toml`); CI runs both on Python 3.10–3.12.
 
 ## License
 MIT

@@ -85,9 +85,12 @@ class SensorManager:
 
     @property
     def is_running(self) -> bool:
+        """Whether the manager is started (set by ``start_all``, cleared by
+        ``stop_all``); does not guarantee any sensor actually connected."""
         return self._running
 
     def _on_data(self, sid: str, dp: dict):
+        """Fan a new reading to global subscribers and the detection engine."""
         stype = sid.split("_")[0]
 
         with self._lock:

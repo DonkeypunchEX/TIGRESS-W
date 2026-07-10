@@ -1,3 +1,5 @@
+"""Accelerometer sensor backed by termux-sensor."""
+
 import json
 import subprocess
 import threading
@@ -27,6 +29,7 @@ class PhoneSensor(BaseSensor):
         self._thread: Optional[threading.Thread] = None
 
     def connect(self) -> bool:
+        """Check the sensor backend is available; return True on success."""
         result = subprocess.run(["which", "termux-sensor"], capture_output=True)
         if result.returncode != 0:
             logger.warning("termux-sensor not found — phone sensor disabled")
@@ -35,10 +38,12 @@ class PhoneSensor(BaseSensor):
         return True
 
     def disconnect(self):
+        """Stop recording and mark the sensor disconnected."""
         self.stop_recording()
         self.connected = False
 
     def start_recording(self) -> bool:
+        """Start the background sampling thread; return True on success."""
         if not self.connected:
             return False
         self.recording = True
@@ -47,6 +52,7 @@ class PhoneSensor(BaseSensor):
         return True
 
     def stop_recording(self):
+        """Stop the background sampling thread."""
         self.recording = False
         if self._thread:
             self._thread.join(timeout=5)

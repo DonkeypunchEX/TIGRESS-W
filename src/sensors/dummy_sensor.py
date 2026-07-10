@@ -1,3 +1,5 @@
+"""Synthetic sensor that emits random readings for testing."""
+
 import random
 import threading
 import time
@@ -15,14 +17,17 @@ class DummySensor(BaseSensor):
         self._thread: Optional[threading.Thread] = None
 
     def connect(self) -> bool:
+        """Always connect — the synthetic sensor needs no backend."""
         self.connected = True
         return True
 
     def disconnect(self):
+        """Stop recording and mark the sensor disconnected."""
         self.stop_recording()
         self.connected = False
 
     def start_recording(self) -> bool:
+        """Start the background sampling thread; return True on success."""
         if not self.connected:
             return False
         self.recording = True
@@ -31,6 +36,7 @@ class DummySensor(BaseSensor):
         return True
 
     def stop_recording(self):
+        """Stop the background sampling thread."""
         self.recording = False
         if self._thread:
             self._thread.join(timeout=5)

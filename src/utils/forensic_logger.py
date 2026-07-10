@@ -1,3 +1,5 @@
+"""Append-only forensic JSONL logging."""
+
 import json
 import logging
 import os
@@ -15,6 +17,7 @@ class ForensicLogger:
         self.log_path.parent.mkdir(exist_ok=True, parents=True)
 
     def log(self, event_type: str, data: Dict[str, Any]):
+        """Append one fsynced JSONL record for an event."""
         entry = json.dumps({"type": event_type, "data": data})
         try:
             with open(self.log_path, "a") as f:

@@ -1,3 +1,5 @@
+"""WiFi scanning sensor backed by termux-wifi-scaninfo."""
+
 import json
 import subprocess
 import threading
@@ -32,6 +34,7 @@ class WiFiSensor(BaseSensor):
         self._known_file.write_text("\n".join(sorted(self._known_bssids)) + "\n")
 
     def connect(self) -> bool:
+        """Check the sensor backend is available; return True on success."""
         result = subprocess.run(["which", "termux-wifi-scaninfo"], capture_output=True)
         if result.returncode != 0:
             logger.warning("termux-wifi-scaninfo not found — WiFi sensor disabled")
@@ -40,11 +43,13 @@ class WiFiSensor(BaseSensor):
         return True
 
     def disconnect(self):
+        """Stop recording and mark the sensor disconnected."""
         self.stop_recording()
         self._save_known()
         self.connected = False
 
     def start_recording(self) -> bool:
+        """Start the background sampling thread; return True on success."""
         if not self.connected:
             return False
         self.recording = True
@@ -53,6 +58,7 @@ class WiFiSensor(BaseSensor):
         return True
 
     def stop_recording(self):
+        """Stop the background sampling thread."""
         self.recording = False
         if self._thread:
             self._thread.join(timeout=5)

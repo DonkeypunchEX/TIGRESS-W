@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class SecurityError(Exception):
+    """Raised when decryption or integrity verification fails."""
     pass
 
 
@@ -79,6 +80,7 @@ class SecureConfig:
         return b"".join(sources) or os.urandom(64)
 
     def save(self, name: str, config: Dict[str, Any]) -> str:
+        """Encrypt and store a config; return its id."""
         config_id = hashlib.sha256(name.encode()).hexdigest()[:16]
         payload = {
             "id": config_id,
@@ -92,6 +94,7 @@ class SecureConfig:
         return config_id
 
     def load(self, config_id: str) -> Dict[str, Any]:
+        """Decrypt, verify the HMAC, and return a stored config."""
         enc_file = self.config_path / f"{config_id}.enc"
         if not enc_file.exists():
             raise ValueError(f"Config '{config_id}' not found")

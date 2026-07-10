@@ -21,16 +21,20 @@ class BaseSensor(ABC):
         self._subscribers: List[Callable] = []
 
     @abstractmethod
-    def connect(self) -> bool: ...
+    def connect(self) -> bool:
+        """Connect to the underlying sensor; return True on success."""
 
     @abstractmethod
-    def disconnect(self): ...
+    def disconnect(self):
+        """Stop recording and release the sensor."""
 
     @abstractmethod
-    def start_recording(self) -> bool: ...
+    def start_recording(self) -> bool:
+        """Start the background sampling loop; return True on success."""
 
     @abstractmethod
-    def stop_recording(self): ...
+    def stop_recording(self):
+        """Stop the background sampling loop."""
 
     def subscribe(self, callback: Callable):
         """Register a callback invoked with each new reading."""
@@ -45,6 +49,7 @@ class BaseSensor(ABC):
         self.notify(data)
 
     def notify(self, data: dict):
+        """Deliver a reading to every subscriber, ignoring their errors."""
         for cb in self._subscribers:
             try:
                 cb(data)

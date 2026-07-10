@@ -1,3 +1,5 @@
+"""Thin wrapper around termux-notification for on-device push."""
+
 import logging
 import subprocess
 from typing import Optional
@@ -22,6 +24,7 @@ class TermuxNotifier:
         vibrate: bool = True,
         ongoing: bool = False,
     ) -> bool:
+        """Send a notification; return True if termux-notification succeeded."""
         cmd = [
             "termux-notification",
             "--title", title,

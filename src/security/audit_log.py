@@ -56,6 +56,7 @@ class AuditLog:
         chain_file.chmod(0o600)
 
     def log(self, event_type: str, data: Dict[str, Any], severity: str = "INFO") -> str:
+        """Append a signed, hash-chained entry and return its id."""
         entry = {
             "id": hashlib.sha256(os.urandom(32)).hexdigest()[:16],
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -83,6 +84,7 @@ class AuditLog:
         return entry["id"]
 
     def verify_integrity(self) -> bool:
+        """Verify every entry's hash, signature, and chain linkage."""
         prev_hash = _INIT_HASH
         for log_file in sorted(self.log_path.glob("audit_*.log")):
             with open(log_file) as f:
@@ -110,6 +112,7 @@ class AuditLog:
         return True
 
     def export_for_forensics(self, output_path: str):
+        """Write all log entries plus the public key and chain hash to a file."""
         pub_key = base64.b64encode(
             self._verifying_key.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
         ).decode()

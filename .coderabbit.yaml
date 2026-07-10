@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+reviews:
+  pre_merge_checks:
+    # Docstring coverage is enforced locally and in CI by ruff's pydocstyle
+    # rules, scoped to src/ (see ruff.toml). CodeRabbit's docstring check counts
+    # every function in the changed files — including tests, which are
+    # self-documenting by name — so it reported a misleading metric. Disable it
+    # here and rely on the ruff-enforced, source-only measure instead.
+    docstrings:
+      mode: "off"

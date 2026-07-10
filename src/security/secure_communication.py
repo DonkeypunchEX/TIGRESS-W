@@ -84,6 +84,7 @@ class SecureChannel:
         return cert, key
 
     def get_ssl_context(self, role: str = "server") -> ssl.SSLContext:
+        """Build a hardened mutual-TLS SSLContext for the given role."""
         purpose = ssl.Purpose.CLIENT_AUTH if role == "server" else ssl.Purpose.SERVER_AUTH
         ctx = ssl.create_default_context(purpose)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_3
