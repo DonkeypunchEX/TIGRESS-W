@@ -40,7 +40,7 @@ def test_manager_runs_dummy_sensors(config_path):
         time.sleep(0.2)
         assert manager.is_running
         ids = {s["id"] for s in manager.list_sensors()}
-        assert ids == {"wifi_sensor", "phone_sensor"}
+        assert ids == {"wifi_sensor", "phone_sensor", "bluetooth_sensor"}
     finally:
         manager.stop_all()
     assert manager.is_running is False

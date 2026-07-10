@@ -11,6 +11,7 @@ sensors:
   enabled:
     - wifi
     - phone
+    - bluetooth
   wifi:
     scan_interval: 30
     alert_threshold: 3
@@ -20,6 +21,10 @@ sensors:
     sample_rate: 1.0
     tamper_threshold: 2.0
     stability_samples: 10
+  bluetooth:
+    scan_interval: 30
+    alert_threshold: 5
+    known_devices_file: "data/known_bt_devices.txt"
 
 detection:
   confidence_threshold: 0.6
@@ -27,6 +32,7 @@ detection:
   ml_models:
     wifi: "models/wifi_anomaly.pkl"
     phone: "models/phone_anomaly.pkl"
+    bluetooth: "models/bluetooth_anomaly.pkl"
   training_samples: 300
 
 alerting:

@@ -5,6 +5,7 @@ from typing import Callable, Dict, List
 
 from src.core.detection_engine import DetectionEngine
 from src.sensors.base_sensor import BaseSensor
+from src.sensors.bluetooth_sensor import BluetoothSensor
 from src.sensors.dummy_sensor import DummySensor
 from src.sensors.phone_sensor import PhoneSensor
 from src.sensors.wifi_sensor import WiFiSensor
@@ -16,6 +17,7 @@ logger = get_logger(__name__)
 SENSOR_REGISTRY = {
     "wifi": WiFiSensor,
     "phone": PhoneSensor,
+    "bluetooth": BluetoothSensor,
 }
 
 
@@ -111,6 +113,8 @@ class SensorManager:
             detections = self.detection_engine.analyze_wifi(buffer)
         elif stype == "phone":
             detections = self.detection_engine.analyze_phone(buffer)
+        elif stype == "bluetooth":
+            detections = self.detection_engine.analyze_bluetooth(buffer)
         else:
             detections = []
 

@@ -30,9 +30,10 @@ def config_path(tmp_path):
     cfg = {
         "server": {"host": "127.0.0.1", "port": 8080},
         "sensors": {
-            "enabled": ["wifi", "phone"],
+            "enabled": ["wifi", "phone", "bluetooth"],
             "wifi": {"alert_threshold": 3, "buffer_limit": 50},
             "phone": {"buffer_limit": 50},
+            "bluetooth": {"alert_threshold": 3, "buffer_limit": 50},
         },
         "detection": {
             "confidence_threshold": 0.6,
@@ -40,6 +41,7 @@ def config_path(tmp_path):
             "ml_models": {
                 "wifi": str(tmp_path / "models" / "wifi.pkl"),
                 "phone": str(tmp_path / "models" / "phone.pkl"),
+                "bluetooth": str(tmp_path / "models" / "bluetooth.pkl"),
             },
             "training_samples": 3,
         },
@@ -59,7 +61,25 @@ def config_path(tmp_path):
                     {"field": "SSID", "op": "not_contains", "value": "CorpNet"}
                 ],
             }
-        ]
+        ],
+        "bluetooth_rules": [
+            {
+                "id": "ble_close_proximity",
+                "enabled": True,
+                "description": "Bluetooth device in very close proximity",
+                "severity": 3,
+                "confidence": 0.75,
+                "conditions": [{"field": "rssi", "op": "gt", "value": "-50"}],
+            },
+            {
+                "id": "ble_tracker_suspect",
+                "enabled": True,
+                "description": "Bluetooth device name matches a tracker pattern",
+                "severity": 4,
+                "confidence": 0.8,
+                "conditions": [{"field": "name", "op": "contains", "value": "AirTag"}],
+            },
+        ],
     }
     (tmp_path / "rules.yaml").write_text(yaml.safe_dump(rules))
     return str(tmp_path / "config.yaml")

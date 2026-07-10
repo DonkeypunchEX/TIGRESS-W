@@ -53,6 +53,10 @@ class DummySensor(BaseSensor):
                 "new_ap_count": random.randint(0, 2) if self.sensor_type == "wifi" else 0,
                 "new_bssids": [],
                 "networks": [],
+                "device_count": random.randint(2, 10) if self.sensor_type == "bluetooth" else 0,
+                "new_device_count": random.randint(0, 2) if self.sensor_type == "bluetooth" else 0,
+                "new_devices": [],
+                "devices": [],
                 "tamper_suspect": False,
             }
             self.record(dp)

@@ -62,7 +62,7 @@ class DetectionEngine:
         self._models: Dict[str, IsolationForest] = {}
         self._scalers: Dict[str, StandardScaler] = {}
         self._fitted: Dict[str, bool] = {}
-        self._training_data: Dict[str, List] = {"wifi": [], "phone": []}
+        self._training_data: Dict[str, List] = {"wifi": [], "phone": [], "bluetooth": []}
 
         self._load_models()
 
@@ -102,6 +102,14 @@ class DetectionEngine:
         if not data:
             return []
         detections = self._phone_rules(data[-1]) + self._ml_anomaly(data[-1:], "phone")
+        self._dispatch(detections)
+        return detections
+
+    def analyze_bluetooth(self, data: List[dict]) -> List[Detection]:
+        """Analyze a Bluetooth scan buffer and dispatch any detections."""
+        if not data:
+            return []
+        detections = self._bluetooth_rules(data[-1]) + self._ml_anomaly(data[-1:], "bluetooth")
         self._dispatch(detections)
         return detections
 
@@ -166,6 +174,10 @@ class DetectionEngine:
             return np.array([[d.get("ap_count", 0), d.get("new_ap_count", 0)] for d in data])
         if stype == "phone":
             return np.array([[d.get("magnitude", 0)] for d in data])
+        if stype == "bluetooth":
+            return np.array(
+                [[d.get("device_count", 0), d.get("new_device_count", 0)] for d in data]
+            )
         return None
 
     def _wifi_rules(self, scan: dict) -> List[Detection]:
@@ -222,6 +234,46 @@ class DetectionEngine:
                 except ValueError:
                     return False
         return True
+
+    def _bluetooth_rules(self, scan: dict) -> List[Detection]:
+        """Apply BLE rules to the latest scan and flag new-device surges."""
+        detections = []
+        devices = scan.get("devices", [])
+        bt_cfg = self.config.get("sensors", {}).get("bluetooth", {})
+
+        for dev in devices:
+            for rule in self._rules.get("bluetooth_rules", []):
+                if not rule.get("enabled", True):
+                    continue
+                if self._rule_matches(rule, dev):
+                    detections.append(Detection(
+                        id=f"rule_{rule['id']}_{uuid.uuid4().hex[:6]}",
+                        sensor_type="bluetooth",
+                        confidence=float(rule.get("confidence", 0.8)),
+                        severity=int(rule.get("severity", 3)),
+                        timestamp=pd.Timestamp.now(tz="UTC").isoformat(),
+                        sensor_id="bluetooth_sensor",
+                        description=rule.get("description", rule["id"]),
+                        features={
+                            "rule": rule["id"],
+                            "address": dev.get("address"),
+                            "name": dev.get("name"),
+                        },
+                    ))
+
+        if scan.get("new_device_count", 0) > bt_cfg.get("alert_threshold", 5):
+            detections.append(Detection(
+                id=f"new_bt_{uuid.uuid4().hex[:6]}",
+                sensor_type="bluetooth",
+                confidence=0.7,
+                severity=3,
+                timestamp=pd.Timestamp.now(tz="UTC").isoformat(),
+                sensor_id="bluetooth_sensor",
+                description=f"{scan['new_device_count']} new Bluetooth devices appeared",
+                features={"new_devices": scan.get("new_devices", [])},
+            ))
+
+        return detections
 
     def _phone_rules(self, dp: dict) -> List[Detection]:
         if not dp.get("tamper_suspect"):

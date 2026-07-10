@@ -8,3 +8,23 @@ wifi_rules:
       - field: SSID
         op: not_contains
         value: "CorpNet"
+
+bluetooth_rules:
+  - id: ble_close_proximity
+    enabled: true
+    description: "Bluetooth device in very close proximity (strong RSSI)"
+    severity: 3
+    confidence: 0.75
+    conditions:
+      - field: rssi
+        op: gt
+        value: "-50"
+  - id: ble_tracker_suspect
+    enabled: true
+    description: "Bluetooth device name matches a known tracker pattern"
+    severity: 4
+    confidence: 0.8
+    conditions:
+      - field: name
+        op: contains
+        value: "AirTag"

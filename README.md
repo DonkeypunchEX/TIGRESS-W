@@ -4,6 +4,7 @@ Security monitoring framework for Android/Termux: WiFi anomaly detection, physic
 
 ## Features
 - WiFi scanning with new-BSSID and SSID-rule alerting
+- Bluetooth/BLE scanning with new-device, proximity, and tracker alerting
 - Accelerometer-based tamper detection
 - Isolation Forest anomaly detection (auto-trains on first run)
 - Encrypted configuration (hardware-backed when available)
@@ -14,6 +15,8 @@ Security monitoring framework for Android/Termux: WiFi anomaly detection, physic
 
 ## Limitations (Android 13+)
 - `termux-wifi-scaninfo` returns cached data — scans may be stale
+- Bluetooth scanning requires `termux-bluetooth-scaninfo`; the sensor disables
+  itself if it is unavailable
 - Accelerometer sensor name is auto-detected per device
 - ML models require a training pass before anomaly detection activates
 - For background operation: use `termux-wake-lock` and keep Termux in the foreground
