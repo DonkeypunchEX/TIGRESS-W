@@ -67,6 +67,23 @@ sensor keeps in memory. `alerting.history_size` (default 500) caps how many
 recent detections are held in memory for the `/detections` API. Detection rules
 live in `config/rules.yaml`.
 
+## Runtime Protection
+Running with `--secure` verifies the boot manifest and starts runtime integrity
+monitoring: critical-file hashing and debugger detection, plus optional
+**process monitoring**. When `security.process_monitoring` is enabled, TIGRESS
+records a baseline of running processes at startup and alarms only when a
+*new*, non-whitelisted process appears (each is reported once). Configure it
+under `security` in `config/config.yaml`:
+
+```yaml
+security:
+  process_monitoring: true
+  process_whitelist: ["my-daemon"]   # extra names to treat as expected
+  monitor_interval: 30               # seconds between checks
+```
+
+Alarms are written to `data/alerts/tamper.log` and pushed via `termux-notification`.
+
 ## Models
 Trained models are saved to `models/`. Delete them to retrain. The engine falls
 back to rule-based detection until training is complete.

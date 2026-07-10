@@ -111,11 +111,12 @@ def main():
     )
     args = parser.parse_args()
 
+    _manager = SensorManager(dummy=args.dummy, training=args.train)
+
     if args.secure:
         from src.security.secure_boot import start_runtime_protection
-        start_runtime_protection()
+        start_runtime_protection(_manager.config)
 
-    _manager = SensorManager(dummy=args.dummy, training=args.train)
     server = _manager.config.get("server", {})
     ssl_options = _ssl_options(args.secure, server)
     if ssl_options:

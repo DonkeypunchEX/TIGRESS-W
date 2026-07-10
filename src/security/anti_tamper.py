@@ -6,7 +6,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, Iterable, List, Optional, Set
 
 import psutil
 
@@ -24,12 +24,26 @@ class RuntimeProtection:
         "sshd", "logcat", "uvicorn",
     }
 
-    def __init__(self, critical_files: Set[Path]):
+    def __init__(
+        self,
+        critical_files: Set[Path],
+        process_whitelist: Optional[Iterable[str]] = None,
+        monitor_processes: bool = False,
+    ):
         self.critical_files = critical_files
         self._baseline_hashes: Dict[Path, str] = self._hash_files()
         self._thread = None
         self._running = False
         self.violations: List[str] = []
+
+        # Process monitoring: alarm only on processes that appear *after* a
+        # baseline is established and are not on the whitelist.
+        self.process_whitelist: Set[str] = set(self.PROCESS_WHITELIST) | set(
+            process_whitelist or []
+        )
+        self._monitor_processes = monitor_processes
+        self._known_processes: Set[str] = set()
+        self._process_baseline_ready = False
 
     def _hash_files(self) -> Dict[Path, str]:
         return {p: hashlib.sha512(p.read_bytes()).hexdigest() for p in self.critical_files if p.exists()}
@@ -58,28 +72,44 @@ class RuntimeProtection:
             pass
         return True
 
-    def verify_processes(self) -> bool:
-        """Check running process names against the whitelist.
-
-        Returns ``True`` when every running process is whitelisted. Any
-        non-whitelisted process is appended to ``self.violations``. Process
-        names are inherently noisy, so this check is exposed for callers to use
-        deliberately and is not wired into the auto-alarm loop by default.
-        """
+    def _current_process_names(self) -> Set[str]:
+        """Return the set of currently-running process names."""
         try:
-            names = {
+            return {
                 p.info["name"]
                 for p in psutil.process_iter(["name"])
                 if p.info.get("name")
             }
         except Exception as e:  # psutil unavailable or permission denied
             logger.debug(f"Process enumeration failed: {e}")
+            return set()
+
+    def verify_processes(self) -> bool:
+        """Detect newly-appeared, non-whitelisted processes.
+
+        The first call establishes a baseline (everything currently running,
+        plus the whitelist) and returns ``True``. Subsequent calls flag process
+        names that were not in the baseline and are not whitelisted — each is
+        reported once, then folded into the baseline so it does not re-alarm.
+        Returns ``True`` when no new unexpected process appeared.
+        """
+        current = self._current_process_names()
+        if not current:
+            return True  # couldn't enumerate; do not raise a false alarm
+
+        if not self._process_baseline_ready:
+            self._known_processes = set(current) | self.process_whitelist
+            self._process_baseline_ready = True
+            logger.info(
+                f"Process baseline established ({len(self._known_processes)} names)"
+            )
             return True
 
-        unexpected = names - self.PROCESS_WHITELIST
-        for name in sorted(unexpected):
-            self.violations.append(f"Non-whitelisted process: {name}")
-        return not unexpected
+        new = current - self._known_processes
+        self._known_processes |= current
+        for name in sorted(new):
+            self.violations.append(f"Unexpected process appeared: {name}")
+        return not new
 
     def start_monitoring(self, interval: int = 30):
         self._running = True
@@ -99,7 +129,18 @@ class RuntimeProtection:
                 self._alarm("File integrity violation")
             if not self.verify_no_debugger():
                 self._alarm("Debugger detected")
+            if self._monitor_processes:
+                self._check_processes()
             time.sleep(interval)
+
+    def _check_processes(self):
+        """Run the process check and alarm (once) on any new process names."""
+        before = len(self.violations)
+        if not self.verify_processes():
+            # verify_processes records "Unexpected process appeared: <name>";
+            # extract just the names so the alarm text isn't doubled up.
+            names = [v.split(": ", 1)[-1] for v in self.violations[before:]]
+            self._alarm("Unexpected process(es): " + ", ".join(names))
 
     def _alarm(self, reason: str):
         logger.critical(f"TAMPER ALARM: {reason}")

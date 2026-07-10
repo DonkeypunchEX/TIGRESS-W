@@ -84,14 +84,25 @@ class SecureBoot:
         return hmac.new(key_file.read_bytes(), data, hashlib.sha512).hexdigest()
 
 
-def start_runtime_protection():
-    """Verify boot integrity and start file monitoring. Call from app entrypoint."""
+def start_runtime_protection(config: Optional[Dict] = None):
+    """Verify boot integrity and start runtime monitoring.
+
+    Reads the optional ``security`` config section for process-monitoring
+    settings: ``process_monitoring`` (bool), ``process_whitelist`` (extra
+    allowed process names), and ``monitor_interval`` (seconds). Call from the
+    app entrypoint.
+    """
+    security = (config or {}).get("security", {})
     boot = SecureBoot()
     if not boot.verify_manifest():
         logger.critical("Boot verification failed — halting")
         sys.exit(1)
     logger.info("Boot verification passed")
     from src.security.anti_tamper import RuntimeProtection
-    protector = RuntimeProtection({Path(f) for f in TIGRESS_CORE_FILES if Path(f).exists()})
-    protector.start_monitoring(interval=30)
+    protector = RuntimeProtection(
+        {Path(f) for f in TIGRESS_CORE_FILES if Path(f).exists()},
+        process_whitelist=security.get("process_whitelist"),
+        monitor_processes=bool(security.get("process_monitoring", False)),
+    )
+    protector.start_monitoring(interval=int(security.get("monitor_interval", 30)))
     return protector

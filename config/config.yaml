@@ -34,3 +34,8 @@ alerting:
   log_file: data/alerts/tigress.log
   forensic_log: data/alerts/forensic.jsonl
   history_size: 500          # recent detections kept in memory for the API
+
+security:
+  process_monitoring: false  # alarm on newly-appeared, non-whitelisted processes (--secure)
+  process_whitelist: []      # extra process names to treat as expected
+  monitor_interval: 30       # seconds between runtime integrity checks
