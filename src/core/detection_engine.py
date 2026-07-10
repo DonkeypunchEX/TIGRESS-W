@@ -256,7 +256,11 @@ class DetectionEngine:
                         description=rule.get("description", rule["id"]),
                         features={
                             "rule": rule["id"],
-                            "address": dev.get("address"),
+                            "address": (
+                                dev.get("address")
+                                or dev.get("mac")
+                                or dev.get("BLUETOOTH_ADDRESS")
+                            ),
                             "name": dev.get("name"),
                         },
                     ))

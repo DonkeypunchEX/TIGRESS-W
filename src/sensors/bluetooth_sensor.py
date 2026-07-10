@@ -46,8 +46,7 @@ class BluetoothSensor(BaseSensor):
 
     def disconnect(self):
         """Stop recording and mark the sensor disconnected."""
-        self.stop_recording()
-        self._save_known()
+        self.stop_recording()  # already persists known devices
         self.connected = False
 
     def start_recording(self) -> bool:
