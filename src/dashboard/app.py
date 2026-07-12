@@ -114,6 +114,27 @@ def _ssl_options(secure: bool, server: Dict[str, Any]) -> Dict[str, Any]:
     return {"ssl_context_factory": ssl_context_factory}
 
 
+def _warn_if_revalidation_needed(config: Dict[str, Any]) -> None:
+    """Log a warning when the detector has no current passing validation.
+
+    Follows the NIJ practice of validating a forensic tool before use and after
+    every update: if the latest validation record is missing, failed, or from a
+    different version, nudge the operator to run ``scripts/selftest.py``.
+    """
+    validation_dir = config.get("app", {}).get("validation_dir", "data/validation")
+    try:
+        from src.core.selftest import needs_revalidation
+        if needs_revalidation(validation_dir):
+            logger.warning(
+                "No current passing self-validation found in %s; run "
+                "`python scripts/selftest.py` to validate this version before "
+                "relying on detections.",
+                validation_dir,
+            )
+    except Exception as e:  # never block startup on the validation check
+        logger.debug(f"Revalidation check skipped: {e}")
+
+
 def main():
     """CLI entry point: parse flags, build the manager, and run the server."""
     global _manager, _api_token
@@ -129,6 +150,8 @@ def main():
     args = parser.parse_args()
 
     _manager = SensorManager(dummy=args.dummy, training=args.train)
+
+    _warn_if_revalidation_needed(_manager.config)
 
     if args.secure:
         from src.security.secure_boot import start_runtime_protection

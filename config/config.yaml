@@ -40,7 +40,12 @@ alerting:
   notification: true
   log_file: data/alerts/tigress.log
   forensic_log: data/alerts/forensic.jsonl
+  forensic_max_bytes: 0      # rotate the forensic log past this size (0 = never); writes a detached .sha256 sidecar
+  forensic_retention_days: 0 # prune rotated forensic logs older than this (0 = keep forever)
   history_size: 500          # recent detections kept in memory for the API
+  async_dispatch: true       # deliver alerts on background threads (never block detection)
+  async_workers: 2           # number of background delivery threads
+  queue_size: 256            # max queued alerts before new ones are dropped with a warning
   channels:                  # pluggable alert delivery; each fires at/above its min_severity
     termux:
       enabled: true
@@ -50,6 +55,7 @@ alerting:
       url: ""
       min_severity: 3
       timeout: 5
+      allowed_hosts: []      # egress allowlist; empty = unrestricted, else host must be listed
     email:
       enabled: false
       smtp_host: ""

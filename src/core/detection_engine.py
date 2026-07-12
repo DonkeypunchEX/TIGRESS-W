@@ -54,7 +54,9 @@ class DetectionEngine:
         self._rules = ConfigLoader.load_yaml(det.get("rules_file", "config/rules.yaml"))
         alerting = self.config.get("alerting", {})
         self.forensic = ForensicLogger(
-            alerting.get("forensic_log", "data/alerts/forensic.jsonl")
+            alerting.get("forensic_log", "data/alerts/forensic.jsonl"),
+            max_bytes=alerting.get("forensic_max_bytes", 0),
+            retention_days=alerting.get("forensic_retention_days", 0),
         )
         self.history = DetectionStore(max_size=alerting.get("history_size", 500))
         self.alerts = AlertDispatcher.from_config(alerting)
@@ -118,7 +120,7 @@ class DetectionEngine:
             self.forensic.log("detection", d.__dict__)
             self.history.add(d.__dict__)
             emoji = {5: "🔴", 4: "🟠", 3: "🟡"}.get(d.severity, "⚪")
-            self.alerts.dispatch(
+            self.alerts.submit(
                 title=f"{emoji} TIGRESS – Severity {d.severity}/5",
                 content=f"{d.description} (conf: {d.confidence:.2f})",
                 severity=d.severity,

@@ -3,14 +3,20 @@
 An :class:`AlertDispatcher` fans a single alert out to any number of configured
 channels — Termux push, an HTTP webhook, and email — each with its own minimum
 severity. All channels are standard-library only (no extra dependencies) and
-failures in one channel never block the others.
+failures in one channel never block the others. The dispatcher can optionally
+deliver alerts on background worker threads so slow channels (a hung webhook or
+SMTP server) never stall the detection pipeline.
 """
 
+import atexit
 import json
 import logging
 import os
+import queue
 import smtplib
 import ssl
+import threading
+import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
@@ -20,6 +26,23 @@ from typing import Any, Dict, List, Optional
 from src.utils.termux_notify import notifier as _default_notifier
 
 logger = logging.getLogger(__name__)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirect handler that refuses to follow redirects.
+
+    Following a redirect from an allow-listed host to an arbitrary location
+    would defeat the webhook egress allowlist (an SSRF vector), so 3xx
+    responses are surfaced as errors instead of transparently chased.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Return None so urllib treats the 3xx as a terminal HTTPError."""
+        return None
+
+
+#: Opener that never follows redirects, used for all outbound webhook POSTs.
+_no_redirect_opener = urllib.request.build_opener(_NoRedirect())
 
 
 class AlertChannel(ABC):
@@ -57,14 +80,32 @@ class TermuxChannel(AlertChannel):
 
 
 class WebhookChannel(AlertChannel):
-    """POST a JSON alert to a configured URL."""
+    """POST a JSON alert to a configured URL.
+
+    When ``allowed_hosts`` is set, the target host must appear in it or the
+    POST is refused — an egress allowlist that bounds where alerts (and any
+    attacker who can influence the configured URL) can send traffic. Redirects
+    are never followed, so an allow-listed host cannot bounce the request
+    elsewhere.
+    """
 
     name = "webhook"
 
-    def __init__(self, url: str, min_severity: int = 1, timeout: float = 5):
+    def __init__(
+        self,
+        url: str,
+        min_severity: int = 1,
+        timeout: float = 5,
+        allowed_hosts: Optional[List[str]] = None,
+    ):
         super().__init__(min_severity)
         self.url = url
         self.timeout = timeout
+        # Normalise to a lowercase set; None/empty means "no restriction".
+        self.allowed_hosts = (
+            {h.strip().lower() for h in allowed_hosts if h and h.strip()}
+            if allowed_hosts else set()
+        )
 
     def send(self, title: str, content: str, severity: int) -> bool:
         """POST the alert as JSON to the configured webhook URL."""
@@ -73,6 +114,13 @@ class WebhookChannel(AlertChannel):
             return False
         if not self.url.startswith(("http://", "https://")):
             logger.warning(f"Webhook url must use http/https, got: {self.url}")
+            return False
+        host = (urllib.parse.urlparse(self.url).hostname or "").lower()
+        if self.allowed_hosts and host not in self.allowed_hosts:
+            logger.warning(
+                "Webhook host %r not in egress allowlist %s; refusing to send",
+                host, sorted(self.allowed_hosts),
+            )
             return False
         payload = json.dumps({
             "source": "TIGRESS",
@@ -86,7 +134,9 @@ class WebhookChannel(AlertChannel):
             headers={"Content-Type": "application/json"}, method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            # Scheme is validated above and redirects are disabled, so this is
+            # not the unrestricted url-open bandit warns about.
+            with _no_redirect_opener.open(req, timeout=self.timeout) as resp:  # nosec B310
                 return 200 <= resp.status < 300
         except Exception as e:
             logger.warning(f"Webhook alert failed: {e}")
@@ -145,10 +195,99 @@ class EmailChannel(AlertChannel):
 
 
 class AlertDispatcher:
-    """Fan an alert out to every configured channel that clears its severity."""
+    """Fan an alert out to every configured channel that clears its severity.
 
-    def __init__(self, channels: Optional[List[AlertChannel]] = None):
+    Delivery is synchronous by default (:meth:`dispatch` returns a per-channel
+    result map). Passing ``async_workers > 0`` starts that many background
+    daemon threads; callers then use :meth:`submit` for fire-and-forget
+    delivery that never blocks on a slow channel.
+    """
+
+    def __init__(
+        self,
+        channels: Optional[List[AlertChannel]] = None,
+        async_workers: int = 0,
+        queue_size: int = 256,
+    ):
         self.channels: List[AlertChannel] = list(channels or [])
+        self._queue: Optional["queue.Queue"] = None
+        self._workers: List[threading.Thread] = []
+        if async_workers > 0:
+            self._start_workers(async_workers, queue_size)
+
+    def _start_workers(self, count: int, queue_size: int) -> None:
+        """Spin up background delivery threads reading from a bounded queue."""
+        self._queue = queue.Queue(maxsize=max(1, queue_size))
+        for i in range(count):
+            t = threading.Thread(
+                target=self._worker_loop, name=f"alert-worker-{i}", daemon=True,
+            )
+            t.start()
+            self._workers.append(t)
+        atexit.register(self.shutdown)
+
+    def _worker_loop(self) -> None:
+        """Deliver queued alerts until a ``None`` sentinel is received."""
+        # Bind the queue locally so a concurrent shutdown() that clears
+        # self._queue can never turn the next get() into an AttributeError.
+        q = self._queue
+        assert q is not None
+        while True:
+            item = q.get()
+            try:
+                if item is None:  # shutdown sentinel
+                    return
+                title, content, severity = item
+                self.dispatch(title, content, severity)
+            except Exception as e:  # a bad alert must not kill the worker
+                logger.error(f"Alert worker error: {e}")
+            finally:
+                q.task_done()
+
+    def submit(self, title: str, content: str, severity: int = 3) -> None:
+        """Fire-and-forget delivery.
+
+        Enqueues the alert when async workers are running (returning at once),
+        otherwise dispatches synchronously in the caller's thread. On a full
+        queue the alert is dropped with a warning so alerting can never block
+        or unboundedly grow the detection pipeline.
+        """
+        if self._queue is not None:
+            try:
+                self._queue.put_nowait((title, content, severity))
+            except queue.Full:
+                logger.warning(
+                    "Alert queue full (%d); dropping alert: %s",
+                    self._queue.maxsize, title,
+                )
+            return
+        self.dispatch(title, content, severity)
+
+    def shutdown(self, timeout: float = 5) -> None:
+        """Drain queued alerts and stop the background workers.
+
+        Idempotent and safe to call when running synchronously (no-op). Sentinel
+        puts never block indefinitely: workers drain the queue, so on a full
+        queue we wait at most ``timeout`` for room. Workers hold their own queue
+        reference, so clearing ``self._queue`` here cannot crash a straggler.
+        """
+        q = self._queue
+        if q is None:
+            return
+        for _ in self._workers:
+            try:
+                q.put_nowait(None)
+            except queue.Full:
+                # Workers are consuming; wait briefly for space, then give up
+                # (they are daemon threads and are reaped at process exit).
+                try:
+                    q.put(None, timeout=timeout)
+                except queue.Full:
+                    break
+        for t in self._workers:
+            t.join(timeout=timeout)
+        self._workers = []
+        self._queue = None
 
     @classmethod
     def from_config(cls, alerting_cfg: Dict[str, Any]) -> "AlertDispatcher":
@@ -156,11 +295,21 @@ class AlertDispatcher:
 
         When no ``channels`` block is present, defaults to Termux only (the
         previous behaviour). Otherwise builds each channel whose ``enabled`` is
-        true.
+        true. ``async_dispatch: true`` delivers alerts on background threads
+        (see ``async_workers`` and ``queue_size``).
         """
-        channels_cfg = (alerting_cfg or {}).get("channels")
+        alerting_cfg = alerting_cfg or {}
+        async_workers = (
+            int(alerting_cfg.get("async_workers", 2))
+            if alerting_cfg.get("async_dispatch") else 0
+        )
+        queue_size = int(alerting_cfg.get("queue_size", 256))
+
+        channels_cfg = alerting_cfg.get("channels")
         if channels_cfg is None:
-            return cls([TermuxChannel()])
+            return cls(
+                [TermuxChannel()], async_workers=async_workers, queue_size=queue_size,
+            )
 
         channels: List[AlertChannel] = []
         for name, cfg in channels_cfg.items():
@@ -173,6 +322,7 @@ class AlertDispatcher:
             elif name == "webhook":
                 channels.append(WebhookChannel(
                     cfg.get("url", ""), min_severity=ms, timeout=cfg.get("timeout", 5),
+                    allowed_hosts=cfg.get("allowed_hosts"),
                 ))
             elif name == "email":
                 channels.append(EmailChannel(
@@ -188,7 +338,7 @@ class AlertDispatcher:
                 ))
             else:
                 logger.warning(f"Unknown alert channel '{name}' — ignored")
-        return cls(channels)
+        return cls(channels, async_workers=async_workers, queue_size=queue_size)
 
     def dispatch(self, title: str, content: str, severity: int = 3) -> Dict[str, bool]:
         """Send to every channel with ``min_severity <= severity``.

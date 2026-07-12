@@ -120,12 +120,12 @@ class _FakeResp:
 def test_webhook_channel_posts_and_reports_success(monkeypatch):
     captured = {}
 
-    def fake_urlopen(req, timeout=None):
+    def fake_open(req, timeout=None):
         captured["url"] = req.full_url
         captured["body"] = req.data
         return _FakeResp(200)
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("src.utils.alerting._no_redirect_opener.open", fake_open)
     ch = WebhookChannel("https://hook.example/alert")
     assert ch.send("Title", "Body", severity=4) is True
     assert captured["url"] == "https://hook.example/alert"
@@ -136,7 +136,7 @@ def test_webhook_channel_reports_failure(monkeypatch):
     def boom(req, timeout=None):
         raise OSError("connection refused")
 
-    monkeypatch.setattr("urllib.request.urlopen", boom)
+    monkeypatch.setattr("src.utils.alerting._no_redirect_opener.open", boom)
     assert WebhookChannel("https://hook").send("t", "c", 3) is False
 
 
@@ -146,9 +146,104 @@ def test_webhook_channel_without_url_is_noop():
 
 def test_webhook_channel_rejects_non_http_scheme(monkeypatch):
     called = []
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: called.append(1))
+    monkeypatch.setattr(
+        "src.utils.alerting._no_redirect_opener.open",
+        lambda *a, **k: called.append(1),
+    )
     assert WebhookChannel("file:///etc/passwd").send("t", "c", 5) is False
-    assert not called  # urlopen must never be reached for a non-http scheme
+    assert not called  # the opener must never be reached for a non-http scheme
+
+
+def test_webhook_channel_rejects_host_not_in_allowlist(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        "src.utils.alerting._no_redirect_opener.open",
+        lambda *a, **k: called.append(1),
+    )
+    ch = WebhookChannel("https://evil.example/hook", allowed_hosts=["hooks.example.com"])
+    assert ch.send("t", "c", 5) is False
+    assert not called  # blocked before any network call
+
+
+def test_webhook_channel_allows_host_in_allowlist(monkeypatch):
+    def fake_open(req, timeout=None):
+        return _FakeResp(200)
+
+    monkeypatch.setattr("src.utils.alerting._no_redirect_opener.open", fake_open)
+    ch = WebhookChannel(
+        "https://Hooks.Example.com/hook", allowed_hosts=["hooks.example.com"],
+    )
+    assert ch.send("t", "c", 4) is True  # host match is case-insensitive
+
+
+def test_from_config_wires_webhook_allowlist():
+    disp = AlertDispatcher.from_config({
+        "channels": {
+            "webhook": {
+                "enabled": True, "url": "https://x", "allowed_hosts": ["x"],
+            },
+        }
+    })
+    assert disp.channels[0].allowed_hosts == {"x"}
+    disp.shutdown()
+
+
+# --------------------------------------------------------------------------- #
+# Async dispatch
+# --------------------------------------------------------------------------- #
+
+def test_async_dispatch_delivers_via_workers():
+    ch = _RecordingChannel()
+    disp = AlertDispatcher([ch], async_workers=2)
+    try:
+        disp.submit("t", "c", severity=5)
+        disp.submit("t2", "c2", severity=5)
+    finally:
+        disp.shutdown()  # drains queued alerts, then stops workers
+    assert len(ch.calls) == 2
+
+
+def test_submit_is_synchronous_without_workers():
+    ch = _RecordingChannel()
+    disp = AlertDispatcher([ch])  # no async workers
+    disp.submit("t", "c", severity=5)
+    assert ch.calls  # delivered inline, no shutdown needed
+
+
+def test_from_config_async_dispatch_starts_workers():
+    disp = AlertDispatcher.from_config({"async_dispatch": True, "async_workers": 1})
+    try:
+        assert disp._workers  # background worker running
+    finally:
+        disp.shutdown()
+    assert not disp._workers  # cleaned up
+
+
+def test_shutdown_does_not_block_on_full_queue_with_slow_channel():
+    import threading
+    import time
+
+    release = threading.Event()
+
+    class _Slow(AlertChannel):
+        name = "slow"
+
+        def send(self, title, content, severity):
+            release.wait(timeout=2)
+            return True
+
+    # queue_size=1 with a worker wedged on the slow channel keeps the queue full.
+    disp = AlertDispatcher([_Slow()], async_workers=1, queue_size=1)
+    for _ in range(5):
+        disp.submit("t", "c", severity=5)
+
+    start = time.monotonic()
+    disp.shutdown(timeout=0.2)  # must not wait on the wedged worker/full queue
+    elapsed = time.monotonic() - start
+    release.set()
+
+    assert elapsed < 1.5
+    assert disp._queue is None  # subsequent submit() falls back to synchronous
 
 
 # --------------------------------------------------------------------------- #
