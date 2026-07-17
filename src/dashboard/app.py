@@ -113,6 +113,20 @@ def detections_summary():
     return _manager.detection_engine.history.summary()
 
 
+@app.post("/ingest/ble", dependencies=[Depends(_require_token_strict)])
+def ingest_ble(payload: Union[List[Any], Dict[str, Any]] = Body(...)):
+    """Ingest a BLE scan from a remote sensor node.
+
+    Body: ``{"node_id": "bag-pi", "devices": [{"address", "name", "rssi"},
+    ...]}`` or a bare device list. The scan runs through the same enrichment,
+    rules, and correlation as on-device Bluetooth. Requires the bearer token;
+    disabled (403) when no token is configured.
+    """
+    if not _manager:
+        raise HTTPException(status_code=503, detail="Sensor manager not running")
+    return _manager.detection_engine.ingest_ble(payload)
+
+
 @app.post("/ingest/suricata", dependencies=[Depends(_require_token_strict)])
 def ingest_suricata(payload: Union[List[Any], Dict[str, Any]] = Body(...)):
     """Ingest Suricata EVE alert(s) from a router/gateway sensor.

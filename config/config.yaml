@@ -33,6 +33,7 @@ sensors:
     scan_interval: 30
     alert_threshold: 5
     known_devices_file: "data/known_bt_devices.txt"
+    known_remote_file: "data/known_remote_ble.txt"  # seen-set for /ingest/ble nodes
 
 detection:
   confidence_threshold: 0.6

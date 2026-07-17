@@ -74,6 +74,7 @@ The dashboard exposes read-only JSON endpoints:
 | `GET /events/summary` | Counts of persisted events by severity, type, and sensor over a `since`/`until` window |
 | `GET /analytics` | Time-bucketed event counts (`bucket` = `hour`/`day`/`month`) plus top descriptions, filtered by `event_type`, `since`/`until` |
 | `POST /ingest/suricata` | Ingest Suricata EVE alert(s) from a router/gateway. Body: one EVE record or a list. Always requires the bearer token (returns 403 if none is configured) |
+| `POST /ingest/ble` | Ingest a BLE scan from a remote sensor node. Body: `{"node_id": ..., "devices": [{"address", "name", "rssi"}, ...]}`. Same strict auth as `/ingest/suricata` |
 
 ### Persistent event store (SQLite)
 `/detections` is a fast in-memory view of the most recent detections and is lost
@@ -232,6 +233,27 @@ and correlated. A recurring destination IP (beaconing/C2) can trip
 `entity_persistence`, and network + wireless + physical activity together
 trips `cross_sensor` — the grid sees your whole environment, not just RF.
 Trusted destinations can be allowlisted with `ip:`-prefixed entries.
+
+## Remote BLE Sensor Nodes
+Mainline `termux-api` has no BLE scanning, and iPhones can't background-scan
+at all — so let a cheap dedicated node do the radio work while TIGRESS stays
+the correlation brain. Any Raspberry Pi or laptop with Bluetooth becomes a
+grid sensor:
+
+```bash
+pip install bleak
+export TIGRESS_API_TOKEN=...   # must match the dashboard's token
+python scripts/ble_scanner_node.py --url http://<tigress-host>:8080 \
+    --node bag-pi --interval 15
+```
+
+Ingested scans run through the **same** enrichment, BLE rules, and
+correlation as on-device scans; detections carry the reporting `node` in
+their features, and new-device counts persist across scans (and restarts)
+via `sensors.bluetooth.known_remote_file` (default
+`data/known_remote_ble.txt`). A phone-free deployment — TIGRESS on a Pi at
+home plus a battery Pi in your bag, viewed from an iPhone in Safari — is
+fully supported this way.
 
 ## Threat-Intel Enrichment
 Readings are enriched offline (no network calls) before rules run, from
