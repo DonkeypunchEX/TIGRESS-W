@@ -174,6 +174,14 @@ patterns into TTP-level meta-detections:
   inside one window: coordinated activity
 - **burst** — raw detection volume spiking: an actively hostile environment
 
+Your own gear is excluded via a user-curated allowlist
+(`detection.correlation.allowlist` — inline entries and/or
+`data/trusted_entities.txt`, one MAC per line, optionally `bt:`/`bssid:`
+prefixed), so your smartwatch at strong RSSI all day never reads as a
+tracker. Curate it by hand: do **not** point it at the sensors' `known_*`
+files, which record every device ever seen — a tracker would allowlist
+itself after one sighting.
+
 Every detection is tagged with its Pyramid of Pain band in
 `features.pyramid_level` — `address` (a MAC, trivial for an adversary to
 rotate), `artifact` (SSID/name/vendor), `tool` (tracker-class hardware), or

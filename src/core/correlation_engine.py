@@ -25,7 +25,8 @@ Correlation meta-detections are TTP-level by construction.
 import time
 import uuid
 from collections import deque
-from typing import Any, Deque, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Deque, Dict, Iterable, List, Optional, Set
 
 import pandas as pd
 
@@ -52,6 +53,26 @@ def classify_pyramid_level(sensor_type: str, features: Dict[str, Any]) -> str:
     if features.get("vendor") or features.get("name") or features.get("ssid"):
         return PYRAMID_ARTIFACT
     return PYRAMID_ADDRESS
+
+
+def _normalize_allowlist(entries: Iterable[Any]) -> Set[str]:
+    """Normalize allowlist entries to lower-cased namespaced entity keys.
+
+    A bare MAC/BSSID (``aa:bb:cc:dd:ee:ff``) trusts the address in *both*
+    namespaces; a namespaced entry (``bt:...`` / ``bssid:...``) trusts it in
+    that namespace only.
+    """
+    out: Set[str] = set()
+    for raw in entries:
+        e = str(raw).strip().lower()
+        if not e or e.startswith("#"):
+            continue
+        if e.startswith("bt:") or e.startswith("bssid:"):
+            out.add(e)
+        else:
+            out.add(f"bt:{e}")
+            out.add(f"bssid:{e}")
+    return out
 
 
 def _entities(detection: Dict[str, Any]) -> List[str]:
@@ -82,6 +103,9 @@ class CorrelationEngine:
           enabled: true
           window_seconds: 600      # how far back the engine remembers
           cooldown_seconds: 300    # min gap before the same finding re-fires
+          allowlist:               # your own gear, excluded from correlation
+            entities: []           # inline MACs, optionally bt:/bssid: prefixed
+            file: data/trusted_entities.txt   # one entry per line, # comments
           rules:
             entity_persistence:
               enabled: true
@@ -112,6 +136,24 @@ class CorrelationEngine:
         self._burst = {"enabled": True, "min_detections": 8,
                        "severity": 4, **(rules.get("burst") or {})}
 
+        # Trusted entities (the user's own gear) are excluded from correlation
+        # entirely: your smartwatch at strong RSSI all day is not evidence of
+        # a hostile environment. This must be user-curated trust — never seed
+        # it from the sensors' known_* files, which record everything seen.
+        allow = cfg.get("allowlist") or {}
+        self._allowlist = _normalize_allowlist(allow.get("entities") or [])
+        allow_file = allow.get("file")
+        if allow_file:
+            path = Path(allow_file)
+            if path.exists():
+                self._allowlist |= _normalize_allowlist(
+                    path.read_text().splitlines()
+                )
+                logger.info(
+                    f"Correlation allowlist: {len(self._allowlist)} trusted "
+                    f"entity keys (including {allow_file})"
+                )
+
         # (observed_at, sensor_type, severity, entities, detection_id)
         self._events: Deque[Dict[str, Any]] = deque()
         self._last_fired: Dict[str, float] = {}
@@ -130,11 +172,15 @@ class CorrelationEngine:
         for d in detections:
             if d.get("sensor_type") == "correlation":
                 continue  # never correlate our own output
+            entities = _entities(d)
+            trusted = [e for e in entities if e in self._allowlist]
+            if trusted and len(trusted) == len(entities):
+                continue  # detection is entirely about the user's own gear
             self._events.append({
                 "at": now,
                 "sensor_type": d.get("sensor_type", "unknown"),
                 "severity": int(d.get("severity", 1)),
-                "entities": _entities(d),
+                "entities": [e for e in entities if e not in self._allowlist],
                 "id": d.get("id"),
             })
 

@@ -123,6 +123,95 @@ def test_disabled_engine_is_inert():
 
 
 # --------------------------------------------------------------------------- #
+# trusted-entity allowlist
+# --------------------------------------------------------------------------- #
+
+def test_allowlisted_entity_never_fires_persistence():
+    eng = CorrelationEngine({
+        "enabled": True,
+        "window_seconds": 600,
+        "cooldown_seconds": 300,
+        "allowlist": {"entities": ["AA:BB:CC:DD:EE:01"]},
+        "rules": {
+            "entity_persistence": {"enabled": True, "min_hits": 2, "min_span_seconds": 10},
+            "cross_sensor": {"enabled": False},
+            "burst": {"enabled": False},
+        },
+    })
+    # The user's own device recurring is not evidence of anything.
+    for t in (0, 100, 200, 300):
+        assert eng.observe([_det(address="AA:BB:CC:DD:EE:01")], now=t) == []
+    # An unknown device with the same behaviour still fires.
+    eng.observe([_det(address="DE:AD:BE:EF:00:01")], now=400)
+    assert len(eng.observe([_det(address="DE:AD:BE:EF:00:01")], now=500)) == 1
+
+
+def test_allowlisted_only_detections_do_not_feed_burst_or_cross_sensor():
+    eng = CorrelationEngine({
+        "enabled": True,
+        "window_seconds": 600,
+        "cooldown_seconds": 300,
+        "allowlist": {"entities": ["aa:bb:cc:dd:ee:01"]},
+        "rules": {
+            "entity_persistence": {"enabled": False},
+            "cross_sensor": {"enabled": True, "min_sensor_types": 2},
+            "burst": {"enabled": True, "min_detections": 3},
+        },
+    })
+    # The user's watch tripping the proximity rule all day is dropped entirely.
+    eng.observe([_det(address="aa:bb:cc:dd:ee:01")] * 5, now=0)
+    assert len(eng._events) == 0
+    assert eng.observe([_det(sensor_type="phone")], now=10) == []  # 1 domain only
+
+
+def test_allowlist_file_and_namespacing(tmp_path):
+    f = tmp_path / "trusted.txt"
+    f.write_text(
+        "# my gear\n"
+        "AA:BB:CC:DD:EE:01\n"          # bare: trusted as bt AND bssid
+        "bssid:aa:bb:cc:dd:ee:02\n"    # namespaced: bssid only
+    )
+    eng = CorrelationEngine({
+        "enabled": True,
+        "allowlist": {"file": str(f)},
+        "rules": {
+            "entity_persistence": {"enabled": True, "min_hits": 2, "min_span_seconds": 10},
+            "cross_sensor": {"enabled": False},
+            "burst": {"enabled": False},
+        },
+    })
+    assert "bt:aa:bb:cc:dd:ee:01" in eng._allowlist
+    assert "bssid:aa:bb:cc:dd:ee:01" in eng._allowlist
+    assert "bssid:aa:bb:cc:dd:ee:02" in eng._allowlist
+    # ee:02 is trusted as a BSSID only — as a BT address it still correlates.
+    eng.observe([_det(address="aa:bb:cc:dd:ee:02")], now=0)
+    assert len(eng.observe([_det(address="aa:bb:cc:dd:ee:02")], now=100)) == 1
+
+
+def test_missing_allowlist_file_is_tolerated():
+    eng = CorrelationEngine({"enabled": True, "allowlist": {"file": "does/not/exist.txt"}})
+    assert eng._allowlist == set()
+
+
+def test_mixed_entities_keep_untrusted_part():
+    eng = CorrelationEngine({
+        "enabled": True,
+        "allowlist": {"entities": ["aa:bb:cc:dd:ee:01"]},
+        "rules": {
+            "entity_persistence": {"enabled": True, "min_hits": 2, "min_span_seconds": 10},
+            "cross_sensor": {"enabled": False},
+            "burst": {"enabled": False},
+        },
+    })
+    det = _det(address="de:ad:be:ef:00:01")
+    det["features"]["bssid"] = "aa:bb:cc:dd:ee:01"  # trusted BSSID alongside
+    eng.observe([det], now=0)
+    meta = eng.observe([det], now=100)
+    assert len(meta) == 1
+    assert meta[0]["features"]["entity"] == "bt:de:ad:be:ef:00:01"
+
+
+# --------------------------------------------------------------------------- #
 # pyramid of pain classification + engine integration
 # --------------------------------------------------------------------------- #
 
