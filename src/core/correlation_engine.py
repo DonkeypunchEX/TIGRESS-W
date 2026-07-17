@@ -50,7 +50,12 @@ def classify_pyramid_level(sensor_type: str, features: Dict[str, Any]) -> str:
         return PYRAMID_TTP
     if features.get("is_tracker") or features.get("tracker_name_match"):
         return PYRAMID_TOOL
-    if features.get("vendor") or features.get("name") or features.get("ssid"):
+    if (
+        features.get("vendor")
+        or features.get("name")
+        or features.get("ssid")
+        or features.get("signature")  # IDS signature (network ingestion)
+    ):
         return PYRAMID_ARTIFACT
     return PYRAMID_ADDRESS
 
@@ -67,7 +72,7 @@ def _normalize_allowlist(entries: Iterable[Any]) -> Set[str]:
         e = str(raw).strip().lower()
         if not e or e.startswith("#"):
             continue
-        if e.startswith("bt:") or e.startswith("bssid:"):
+        if e.startswith(("bt:", "bssid:", "ip:")):
             out.add(e)
         else:
             out.add(f"bt:{e}")
@@ -89,6 +94,12 @@ def _entities(detection: Dict[str, Any]) -> List[str]:
         addr = dev.get("address") if isinstance(dev, dict) else dev
         if addr:
             out.append(f"bt:{str(addr).lower()}")
+    # Network alerts (Suricata ingestion): only the destination is an entity.
+    # The source is usually the user's own device/router, which would recur in
+    # every alert and drown persistence in noise; a recurring *destination* is
+    # the beaconing/C2 signal worth tracking.
+    if feats.get("dest_ip"):
+        out.append(f"ip:{str(feats['dest_ip']).lower()}")
     return out
 
 
@@ -122,9 +133,12 @@ class CorrelationEngine:
               severity: 4
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, movement=None):
         cfg = config or {}
         self.enabled = bool(cfg.get("enabled", True))
+        #: Optional MovementTracker; separates "following me" (entity recurs
+        #: while I moved) from "parked nearby" (entity recurs while I sat still).
+        self.movement = movement
         self.window = float(cfg.get("window_seconds", 600))
         self.cooldown = float(cfg.get("cooldown_seconds", 300))
 
@@ -231,16 +245,37 @@ class CorrelationEngine:
         for ent, times in seen.items():
             if len(times) < min_hits or (max(times) - min(times)) < min_span:
                 continue
+
+            moved = None  # None = no movement context available
+            if self.movement is not None and self.movement.has_data():
+                moved = self.movement.moved_between(min(times), max(times))
+            if (
+                moved is not True
+                and self.movement is not None
+                and self.movement.require_movement
+            ):
+                continue  # stationary recurrence isn't following behaviour
             if not self._cooled_down(f"persistence:{ent}", now):
                 continue
-            out.append(self._meta(
-                "entity_persistence",
-                self._persistence.get("severity", 4),
+
+            severity = int(self._persistence.get("severity", 4))
+            description = (
                 f"Entity {ent} persisted across {len(times)} detections over "
                 f"{int(max(times) - min(times))}s — possible tracking device or "
-                f"following behaviour",
+                f"following behaviour"
+            )
+            if moved is True:
+                # Recurring across places, not just across time: the strongest
+                # following signal this grid can produce.
+                severity += self.movement.escalate_severity
+                description += " WHILE THE DEVICE WAS IN MOTION — entity is following you"
+            out.append(self._meta(
+                "entity_persistence",
+                severity,
+                description,
                 {"entity": ent, "hits": len(times),
-                 "span_seconds": int(max(times) - min(times))},
+                 "span_seconds": int(max(times) - min(times)),
+                 "moved_during_span": moved},
             ))
         return out
 

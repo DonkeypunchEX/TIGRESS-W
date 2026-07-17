@@ -16,6 +16,7 @@ def _config():
             "confidence_threshold": 0.6,
             "correlation": {
                 "window_seconds": 600,
+                "movement": {"delta_threshold": 1.5},
                 "rules": {
                     "entity_persistence": {"min_hits": 3},
                     "burst": {"min_detections": 8},
@@ -52,6 +53,7 @@ def test_paranoid_posture_retunes_everything_together():
     assert cfg["detection"]["severity_boost"] == 1
     corr = cfg["detection"]["correlation"]
     assert corr["window_seconds"] == 1200                         # 600 * 2.0
+    assert corr["movement"]["delta_threshold"] == 0.75            # 1.5 * 0.5
     assert corr["rules"]["entity_persistence"]["min_hits"] == 2   # floor of 2
     assert corr["rules"]["burst"]["min_detections"] == 5          # 8 * 0.6
     channels = cfg["alerting"]["channels"]

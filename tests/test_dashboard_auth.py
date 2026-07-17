@@ -17,7 +17,10 @@ def client(monkeypatch):
     store = DetectionStore()
     store.add({"id": "a", "severity": 5, "sensor_type": "wifi"})
     manager = SimpleNamespace(
-        detection_engine=SimpleNamespace(history=store),
+        detection_engine=SimpleNamespace(
+            history=store,
+            ingest_network=lambda payload: {"accepted": 1, "rejected": 0},
+        ),
         list_sensors=lambda: [],
         is_running=True,
     )
@@ -53,3 +56,31 @@ def test_wrong_token_rejected(client, monkeypatch):
 def test_health_is_always_open(client, monkeypatch):
     monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
     assert client.get("/health").status_code == 200
+
+
+def test_ingest_disabled_without_configured_token(client, monkeypatch):
+    # The read endpoints fall open without a token; the write endpoint must not.
+    monkeypatch.setattr(appmod, "_api_token", None)
+    r = client.post("/ingest/suricata", json={"event_type": "alert", "alert": {}})
+    assert r.status_code == 403
+
+
+def test_ingest_rejects_wrong_token(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
+    r = client.post(
+        "/ingest/suricata",
+        json={"event_type": "alert", "alert": {}},
+        headers={"Authorization": "Bearer nope"},
+    )
+    assert r.status_code == 401
+
+
+def test_ingest_accepts_valid_token(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
+    r = client.post(
+        "/ingest/suricata",
+        json={"event_type": "alert", "alert": {"signature": "x", "severity": 1}},
+        headers={"Authorization": "Bearer s3cr3t"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"accepted": 1, "rejected": 0}

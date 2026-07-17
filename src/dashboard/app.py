@@ -4,10 +4,10 @@ import argparse
 import hmac
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Body, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 
 from src.core.sensor_manager import SensorManager
@@ -44,6 +44,21 @@ def _require_token(authorization: Optional[str] = Header(default=None)):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def _require_token_strict(authorization: Optional[str] = Header(default=None)):
+    """Enforce bearer-token auth, refusing service when no token is set.
+
+    Write endpoints (ingestion) must never fall open the way the read
+    endpoints do: without a configured token, anyone on the network could
+    inject fake detections into the forensic log and alert channels.
+    """
+    if not _api_token:
+        raise HTTPException(
+            status_code=403,
+            detail="Ingestion disabled: set server.api_token or TIGRESS_API_TOKEN",
+        )
+    _require_token(authorization)
+
+
 @app.get("/", dependencies=[Depends(_require_token)])
 def root():
     """Root endpoint: overall status and sensor list."""
@@ -67,16 +82,21 @@ def detections(
     limit: int = 50,
     min_severity: int = 1,
     sensor_type: Optional[str] = None,
+    pyramid_level: Optional[str] = None,
 ):
     """Return recent detections, newest first, with optional filters.
 
-    Query params: ``limit`` (max results), ``min_severity`` (1-5), and
-    ``sensor_type`` (e.g. ``wifi`` or ``phone``).
+    Query params: ``limit`` (max results), ``min_severity`` (1-5),
+    ``sensor_type`` (e.g. ``wifi``, ``correlation``, ``network``), and
+    ``pyramid_level`` (``address``/``artifact``/``tool``/``ttp``).
     """
     if not _manager:
         return []
     return _manager.detection_engine.history.recent(
-        limit=limit, min_severity=min_severity, sensor_type=sensor_type
+        limit=limit,
+        min_severity=min_severity,
+        sensor_type=sensor_type,
+        pyramid_level=pyramid_level,
     )
 
 
@@ -84,8 +104,28 @@ def detections(
 def detections_summary():
     """Return counts of recent detections by severity and sensor type."""
     if not _manager:
-        return {"total": 0, "by_severity": {}, "by_sensor_type": {}}
+        return {
+            "total": 0,
+            "by_severity": {},
+            "by_sensor_type": {},
+            "by_pyramid_level": {},
+        }
     return _manager.detection_engine.history.summary()
+
+
+@app.post("/ingest/suricata", dependencies=[Depends(_require_token_strict)])
+def ingest_suricata(payload: Union[List[Any], Dict[str, Any]] = Body(...)):
+    """Ingest Suricata EVE alert(s) from a router/gateway sensor.
+
+    Accepts a single EVE record or a list; only ``alert`` records are
+    converted (flow/dns/stats records are counted as rejected). Accepted
+    alerts become ``network`` detections and flow through the forensic log,
+    alert channels, and correlation engine like any on-device detection.
+    Requires the same bearer token as the data endpoints.
+    """
+    if not _manager:
+        raise HTTPException(status_code=503, detail="Sensor manager not running")
+    return _manager.detection_engine.ingest_network(payload)
 
 
 def _ssl_options(secure: bool, server: Dict[str, Any]) -> Dict[str, Any]:

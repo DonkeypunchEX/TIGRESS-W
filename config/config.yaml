@@ -46,8 +46,14 @@ detection:
                               # your watch/earbuds never look like a tracker.
                               # Curate by hand; do NOT point at known_* files
                               # (those record every device ever seen).
-      entities: []            # inline MACs, optionally bt:/bssid: prefixed
+      entities: []            # inline MACs, optionally bt:/bssid:/ip: prefixed
       file: data/trusted_entities.txt   # one entry per line, '#' comments ok
+    movement:                 # accelerometer context for persistence findings
+      enabled: true
+      delta_threshold: 1.5    # m/s² deviation from gravity that counts as motion
+      escalate_severity: 1    # severity bump when entity recurs WHILE moving
+      require_movement: false # true = persistence only fires if device moved
+      retention_seconds: 1800 # motion history kept for correlation lookback
     rules:
       entity_persistence:     # same BSSID/MAC recurring => tracking suspect
         enabled: true

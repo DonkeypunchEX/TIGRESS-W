@@ -68,8 +68,9 @@ The dashboard exposes read-only JSON endpoints:
 | `GET /` | Status and sensor list |
 | `GET /sensors` | Per-sensor status |
 | `GET /health` | Liveness probe |
-| `GET /detections` | Recent detections, newest first. Query params: `limit`, `min_severity` (1-5), `sensor_type` (`wifi`/`phone`/`bluetooth`) |
-| `GET /detections/summary` | Counts of recent detections by severity and sensor type |
+| `GET /detections` | Recent detections, newest first. Query params: `limit`, `min_severity` (1-5), `sensor_type` (`wifi`/`phone`/`bluetooth`/`correlation`/`network`), `pyramid_level` (`address`/`artifact`/`tool`/`ttp`) |
+| `GET /detections/summary` | Counts of recent detections by severity, sensor type, and Pyramid of Pain band |
+| `POST /ingest/suricata` | Ingest Suricata EVE alert(s) from a router/gateway. Body: one EVE record or a list. Always requires the bearer token (returns 403 if none is configured) |
 
 ### Authentication
 The data endpoints (`/`, `/sensors`, `/detections`, `/detections/summary`) can
@@ -169,7 +170,12 @@ a sliding window (`detection.correlation` in the config) and promotes
 patterns into TTP-level meta-detections:
 
 - **entity_persistence** — the same BSSID/MAC recurring across scans over
-  time: the signature of a tracking device or following behaviour
+  time: the signature of a tracking device or following behaviour. With
+  movement context (`detection.correlation.movement`), a finding whose
+  entity recurred **while the device was in motion** — recurring across
+  places, not just across time — is escalated in severity; set
+  `require_movement: true` to suppress stationary recurrences entirely
+  (e.g. sitting near a neighbour's devices all evening)
 - **cross_sensor** — multiple sensor domains (WiFi + BLE + physical) alerting
   inside one window: coordinated activity
 - **burst** — raw detection volume spiking: an actively hostile environment
@@ -189,6 +195,26 @@ rotate), `artifact` (SSID/name/vendor), `tool` (tracker-class hardware), or
 meta-detections are TTP-level by construction: an adversary can rotate a MAC
 every few minutes, but they cannot stop *being near you repeatedly* without
 abandoning the surveillance itself.
+
+## Network Sensor via Suricata Ingestion
+Packet inspection belongs where packets flow — a router or gateway you
+control, not a non-rooted phone. Run Suricata there and forward its EVE
+alerts to TIGRESS:
+
+```bash
+# e.g. tail Suricata's eve.json on the router and POST alerts to the phone
+tail -F /var/log/suricata/eve.json | while read -r line; do
+  curl -s -X POST -H "Authorization: Bearer $TIGRESS_API_TOKEN" \
+       -H "Content-Type: application/json" -d "$line" \
+       "http://<phone>:8080/ingest/suricata"
+done
+```
+
+Accepted alerts become `network` detections: forensically logged, alerted,
+and correlated. A recurring destination IP (beaconing/C2) can trip
+`entity_persistence`, and network + wireless + physical activity together
+trips `cross_sensor` — the grid sees your whole environment, not just RF.
+Trusted destinations can be allowlisted with `ip:`-prefixed entries.
 
 ## Threat-Intel Enrichment
 Readings are enriched offline (no network calls) before rules run, from

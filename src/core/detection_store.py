@@ -33,11 +33,14 @@ class DetectionStore:
         limit: int = 50,
         min_severity: int = 1,
         sensor_type: Optional[str] = None,
+        pyramid_level: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return up to ``limit`` recent detections, newest first.
 
         Filters to detections with ``severity >= min_severity`` and, when
-        ``sensor_type`` is given, to that sensor type only.
+        given, to a single ``sensor_type`` and/or Pyramid of Pain
+        ``pyramid_level`` (``address``/``artifact``/``tool``/``ttp``, read
+        from ``features.pyramid_level``).
         """
         if limit <= 0:
             return []
@@ -50,28 +53,36 @@ class DetectionStore:
                 continue
             if sensor_type and d.get("sensor_type") != sensor_type:
                 continue
+            if pyramid_level and (
+                (d.get("features") or {}).get("pyramid_level") != pyramid_level
+            ):
+                continue
             out.append(copy.deepcopy(d))  # isolate callers from stored data
             if len(out) >= limit:
                 break
         return out
 
     def summary(self) -> Dict[str, Any]:
-        """Return counts of stored detections by severity and sensor type."""
+        """Return counts by severity, sensor type, and Pyramid of Pain band."""
         with self._lock:
             items = list(self._items)
 
         by_severity: Dict[int, int] = {}
         by_sensor_type: Dict[str, int] = {}
+        by_pyramid_level: Dict[str, int] = {}
         for d in items:
             sev = d.get("severity", 0)
             by_severity[sev] = by_severity.get(sev, 0) + 1
             stype = d.get("sensor_type", "unknown")
             by_sensor_type[stype] = by_sensor_type.get(stype, 0) + 1
+            level = (d.get("features") or {}).get("pyramid_level", "unknown")
+            by_pyramid_level[level] = by_pyramid_level.get(level, 0) + 1
 
         return {
             "total": len(items),
             "by_severity": {str(k): by_severity[k] for k in sorted(by_severity)},
             "by_sensor_type": by_sensor_type,
+            "by_pyramid_level": by_pyramid_level,
         }
 
     def clear(self) -> None:

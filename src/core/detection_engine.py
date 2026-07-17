@@ -22,6 +22,7 @@ from sklearn.preprocessing import StandardScaler
 from src.core.correlation_engine import CorrelationEngine, classify_pyramid_level
 from src.core.detection_store import DetectionStore
 from src.core.enrichment import Enricher
+from src.core.movement import MovementTracker
 from src.utils.alerting import AlertDispatcher
 from src.utils.config_loader import ConfigLoader
 from src.utils.forensic_logger import ForensicLogger
@@ -66,7 +67,9 @@ class DetectionEngine:
         self.history = DetectionStore(max_size=alerting.get("history_size", 500))
         self.alerts = AlertDispatcher.from_config(alerting)
         self.enricher = Enricher(det.get("enrichment_file"))
-        self.correlation = CorrelationEngine(det.get("correlation"))
+        corr_cfg = det.get("correlation") or {}
+        self.movement = MovementTracker(corr_cfg.get("movement"))
+        self.correlation = CorrelationEngine(corr_cfg, movement=self.movement)
         self._severity_boost = int(det.get("severity_boost", 0))
 
         self._models: Dict[str, IsolationForest] = {}
@@ -111,6 +114,9 @@ class DetectionEngine:
         """Analyze a phone-sensor buffer and dispatch any detections."""
         if not data:
             return []
+        # Every reading (not just detections) feeds the movement context that
+        # lets correlation tell "following me" from "parked nearby".
+        self.movement.record(data[-1].get("magnitude"))
         detections = self._phone_rules(data[-1]) + self._ml_anomaly(data[-1:], "phone")
         self._dispatch(detections)
         return detections
@@ -122,6 +128,20 @@ class DetectionEngine:
         detections = self._bluetooth_rules(data[-1]) + self._ml_anomaly(data[-1:], "bluetooth")
         self._dispatch(detections)
         return detections
+
+    def ingest_network(self, payload) -> Dict[str, int]:
+        """Ingest Suricata EVE alert(s) as first-class network detections.
+
+        ``payload`` is one EVE record or a list. Accepted alerts flow through
+        the normal dispatch path (forensic log, history, alert channels,
+        correlation). Returns ``{"accepted": n, "rejected": m}``.
+        """
+        from src.core.network_ingest import eve_to_detections
+
+        dicts, rejected = eve_to_detections(payload)
+        detections = [Detection(**d) for d in dicts]
+        self._dispatch(detections)
+        return {"accepted": len(detections), "rejected": rejected}
 
     def _dispatch(self, detections: List[Detection]):
         self._deliver(detections)

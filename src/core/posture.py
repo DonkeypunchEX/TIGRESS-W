@@ -128,6 +128,13 @@ def apply_posture(config: Dict[str, Any]) -> Dict[str, Any]:
                 corr["window_seconds"] = int(
                     round(corr["window_seconds"] * p["corr_window_factor"])
                 )
+            movement = corr.get("movement")
+            if isinstance(movement, dict) and "delta_threshold" in movement:
+                # More aggressive postures treat smaller accelerations as
+                # motion, same scaling as the tamper threshold.
+                movement["delta_threshold"] = round(
+                    movement["delta_threshold"] * p["tamper_threshold_factor"], 3
+                )
             for rule, keys in (
                 ("entity_persistence", ("min_hits",)),
                 ("cross_sensor", ("min_sensor_types",)),
