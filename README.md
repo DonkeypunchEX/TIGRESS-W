@@ -60,6 +60,18 @@ detections firing, alerts delivered over HTTP, and the authenticated
 python scripts/demo_end_to_end.py
 ```
 
+For the detection-quality story rather than the plumbing, run the **simulated
+field test** — a scripted day (home → commute → café, with a planted
+randomized-MAC tracker and router-side Suricata C2 alerts) played through the
+real engine on compressed time:
+```bash
+python scripts/simulate_field_test.py
+```
+Watch for: zero correlation findings about your allowlisted gear, the
+persistence finding escalated to severity 5 because the tracker recurred
+*while you were moving*, and the final `pyramid_level=ttp` query — the
+"am I being followed?" view.
+
 ## Dashboard API
 The dashboard exposes read-only JSON endpoints:
 
