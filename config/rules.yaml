@@ -28,3 +28,26 @@ bluetooth_rules:
       - field: name
         op: contains
         value: "AirTag"
+  # Enrichment-based rules: match what the device IS, not the literal string
+  # it advertises today (fields added by src/core/enrichment.py).
+  - id: ble_tracker_fingerprint
+    enabled: true
+    description: "Device fingerprint matches a known tracker (name pattern or vendor OUI)"
+    severity: 4
+    confidence: 0.8
+    conditions:
+      - field: is_tracker
+        op: eq
+        value: true
+  - id: ble_randomized_mac_close
+    enabled: true
+    description: "Randomized-MAC device in close proximity (tracker-like behaviour)"
+    severity: 3
+    confidence: 0.7
+    conditions:
+      - field: mac_randomized
+        op: eq
+        value: true
+      - field: rssi
+        op: gt
+        value: "-60"

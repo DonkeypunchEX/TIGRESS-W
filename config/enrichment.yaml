@@ -1,0 +1,37 @@
+# TIGRESS local threat-intelligence data — offline, user-extendable.
+#
+# This is a STARTER SEED, not an authoritative database. Add OUI prefixes for
+# hardware you encounter (https://standards-oui.ieee.org/ is the canonical
+# registry) and name patterns for trackers sold in your region. Entries here
+# extend/override the built-in defaults in src/core/enrichment.py.
+#
+# Keep in mind: modern trackers rotate randomized MACs and hide their names.
+# The mac_randomized flag plus the correlation engine's entity-persistence
+# rule is the behavioural detector; these lists are the cheap first layer.
+
+oui_vendors:
+  "00:03:93": "Apple"
+  "00:0a:95": "Apple"
+  "00:1b:63": "Apple"
+  "f0:18:98": "Apple"
+  "00:12:47": "Samsung"
+  "00:15:99": "Samsung"
+
+# Substring matches (case-insensitive) against advertised device names.
+tracker_name_patterns:
+  - airtag
+  - air tag
+  - tile
+  - smarttag
+  - smart tag
+  - chipolo
+  - itag
+  - "nut find"
+  - tracker
+
+# Vendors whose devices should raise is_tracker when matched by OUI.
+tracker_vendors:
+  - apple
+  - tile
+  - samsung
+  - chipolo

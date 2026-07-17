@@ -3,6 +3,13 @@ app:
   log_level: INFO
   data_directory: "./data"
 
+# Security posture: one knob that retunes the whole grid coherently.
+# relaxed | normal | aggressive | paranoid  (env var TIGRESS_POSTURE wins)
+# normal uses the values below exactly as written; other postures scale
+# scan intervals, thresholds, alert floors, and correlation memory together.
+# paranoid also boosts every detection's severity by +1.
+posture: normal
+
 server:
   host: "127.0.0.1"
   port: 8080
@@ -30,6 +37,31 @@ sensors:
 detection:
   confidence_threshold: 0.6
   rules_file: config/rules.yaml
+  enrichment_file: config/enrichment.yaml  # local OUI/tracker intel (offline)
+  correlation:                # promote atomic indicators to TTP-level findings
+    enabled: true
+    window_seconds: 600       # how far back the engine remembers detections
+    cooldown_seconds: 300     # min gap before the same finding re-fires
+    allowlist:                # YOUR OWN gear — excluded from correlation so
+                              # your watch/earbuds never look like a tracker.
+                              # Curate by hand; do NOT point at known_* files
+                              # (those record every device ever seen).
+      entities: []            # inline MACs, optionally bt:/bssid: prefixed
+      file: data/trusted_entities.txt   # one entry per line, '#' comments ok
+    rules:
+      entity_persistence:     # same BSSID/MAC recurring => tracking suspect
+        enabled: true
+        min_hits: 3
+        min_span_seconds: 60
+        severity: 4
+      cross_sensor:           # multiple sensor domains alerting together
+        enabled: true
+        min_sensor_types: 2
+        severity: 4
+      burst:                  # raw detection volume spike in the window
+        enabled: true
+        min_detections: 8
+        severity: 4
   ml_models:
     wifi: "models/wifi_anomaly.pkl"
     phone: "models/phone_anomaly.pkl"

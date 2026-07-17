@@ -2,7 +2,10 @@
 
 Combines per-reading YAML rules with an unsupervised ML model per sensor type
 ("wifi", "phone"), dispatching any resulting detections to the forensic log and
-push notifier.
+push notifier. Readings are enriched with local threat intel (vendor, tracker
+fingerprints, randomized-MAC flags) before rules run, and every detection is
+fed through the correlation engine, which can emit higher-order (TTP-level)
+meta-detections.
 """
 
 import uuid
@@ -16,7 +19,9 @@ import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
+from src.core.correlation_engine import CorrelationEngine, classify_pyramid_level
 from src.core.detection_store import DetectionStore
+from src.core.enrichment import Enricher
 from src.utils.alerting import AlertDispatcher
 from src.utils.config_loader import ConfigLoader
 from src.utils.forensic_logger import ForensicLogger
@@ -60,6 +65,9 @@ class DetectionEngine:
         )
         self.history = DetectionStore(max_size=alerting.get("history_size", 500))
         self.alerts = AlertDispatcher.from_config(alerting)
+        self.enricher = Enricher(det.get("enrichment_file"))
+        self.correlation = CorrelationEngine(det.get("correlation"))
+        self._severity_boost = int(det.get("severity_boost", 0))
 
         self._models: Dict[str, IsolationForest] = {}
         self._scalers: Dict[str, StandardScaler] = {}
@@ -116,7 +124,19 @@ class DetectionEngine:
         return detections
 
     def _dispatch(self, detections: List[Detection]):
+        self._deliver(detections)
+        # Correlation may promote these atomic indicators into TTP-level
+        # meta-detections (persistence, cross-sensor, burst patterns).
+        meta = self.correlation.observe([d.__dict__ for d in detections])
+        self._deliver([Detection(**m) for m in meta])
+
+    def _deliver(self, detections: List[Detection]):
         for d in detections:
+            if self._severity_boost:
+                d.severity = max(1, min(5, d.severity + self._severity_boost))
+            d.features.setdefault(
+                "pyramid_level", classify_pyramid_level(d.sensor_type, d.features)
+            )
             self.forensic.log("detection", d.__dict__)
             self.history.add(d.__dict__)
             emoji = {5: "🔴", 4: "🟠", 3: "🟡"}.get(d.severity, "⚪")
@@ -187,7 +207,8 @@ class DetectionEngine:
         networks = scan.get("networks", [])
         wifi_cfg = self.config.get("sensors", {}).get("wifi", {})
 
-        for net in networks:
+        for raw_net in networks:
+            net = self.enricher.enrich_wifi(raw_net)
             for rule in self._rules.get("wifi_rules", []):
                 if not rule.get("enabled", True):
                     continue
@@ -200,7 +221,13 @@ class DetectionEngine:
                         timestamp=pd.Timestamp.now(tz="UTC").isoformat(),
                         sensor_id="wifi_sensor",
                         description=rule.get("description", rule["id"]),
-                        features={"rule": rule["id"], "bssid": net.get("BSSID"), "ssid": net.get("SSID")},
+                        features={
+                            "rule": rule["id"],
+                            "bssid": net.get("BSSID"),
+                            "ssid": net.get("SSID"),
+                            "vendor": net.get("vendor"),
+                            "mac_randomized": net.get("mac_randomized"),
+                        },
                     ))
 
         if scan.get("new_ap_count", 0) > wifi_cfg.get("alert_threshold", 3):
@@ -227,8 +254,13 @@ class DetectionEngine:
                 return False
             elif op == "contains" and target not in str(value):
                 return False
-            elif op == "eq" and str(value) != str(target):
-                return False
+            elif op == "eq":
+                # Bool-aware so rules can match enrichment flags (value: true).
+                if isinstance(target, bool) or isinstance(value, bool):
+                    if bool(value) != bool(target):
+                        return False
+                elif str(value) != str(target):
+                    return False
             elif op == "gt":
                 try:
                     if float(value) <= float(target):
@@ -243,7 +275,8 @@ class DetectionEngine:
         devices = scan.get("devices", [])
         bt_cfg = self.config.get("sensors", {}).get("bluetooth", {})
 
-        for dev in devices:
+        for raw_dev in devices:
+            dev = self.enricher.enrich_bluetooth(raw_dev)
             for rule in self._rules.get("bluetooth_rules", []):
                 if not rule.get("enabled", True):
                     continue
@@ -264,6 +297,10 @@ class DetectionEngine:
                                 or dev.get("BLUETOOTH_ADDRESS")
                             ),
                             "name": dev.get("name"),
+                            "vendor": dev.get("vendor"),
+                            "mac_randomized": dev.get("mac_randomized"),
+                            "is_tracker": dev.get("is_tracker"),
+                            "tracker_name_match": dev.get("tracker_name_match"),
                         },
                     ))
 

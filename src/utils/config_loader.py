@@ -11,8 +11,10 @@ class ConfigLoader:
 
     @staticmethod
     def load_config(path: str) -> Dict[str, Any]:
-        """Load the main application config."""
-        return ConfigLoader.load_yaml(path)
+        """Load the main application config with posture tuning applied."""
+        from src.core.posture import apply_posture
+
+        return apply_posture(ConfigLoader.load_yaml(path))
 
     @staticmethod
     def load_yaml(path: str) -> Dict[str, Any]:

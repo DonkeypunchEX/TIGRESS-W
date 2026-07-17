@@ -7,6 +7,11 @@ Security monitoring framework for Android/Termux: WiFi anomaly detection, physic
 - Bluetooth/BLE scanning with new-device, proximity, and tracker alerting
 - Accelerometer-based tamper detection
 - Isolation Forest anomaly detection (auto-trains on first run)
+- Cross-sensor correlation engine (persistence/tracking, coordinated activity,
+  burst patterns) with Pyramid of Pain indicator ranking
+- Offline threat-intel enrichment (OUI vendor, tracker fingerprints,
+  randomized-MAC detection)
+- One-knob security posture (`relaxed`/`normal`/`aggressive`/`paranoid`)
 - Encrypted configuration (hardware-backed when available)
 - Tamper-proof audit logging (hash chain + ECDSA signatures)
 - Runtime file and process integrity monitoring
@@ -141,6 +146,59 @@ The forensic log can rotate and self-prune: `alerting.forensic_max_bytes`
 exceed that size, writing a detached `<file>.sha256` sidecar (the hash stored
 *separately* from the data), and `alerting.forensic_retention_days` (default 0 =
 keep forever) prunes rotated logs older than the window.
+
+### Security posture
+One knob retunes the whole grid coherently — set `posture` in the config or
+the `TIGRESS_POSTURE` environment variable (env wins):
+
+| Posture | Behaviour |
+| ------- | --------- |
+| `relaxed` | Quiet daily carry: slower scans, higher alert bars |
+| `normal` | Config values used exactly as written (default) |
+| `aggressive` | Faster scans, lower detection/alert thresholds |
+| `paranoid` | Fastest scans, lowest thresholds, doubled correlation memory, **+1 severity on every detection** |
+
+Posture scales the values already in your config (scan intervals, confidence
+threshold, alert thresholds, channel `min_severity` floors, tamper threshold,
+correlation windows), so the config stays the single source of truth.
+
+## Correlation & the Pyramid of Pain
+Single detections are atomic indicators — a BSSID, a strong RSSI, one
+accelerometer spike. The correlation engine watches the detection stream over
+a sliding window (`detection.correlation` in the config) and promotes
+patterns into TTP-level meta-detections:
+
+- **entity_persistence** — the same BSSID/MAC recurring across scans over
+  time: the signature of a tracking device or following behaviour
+- **cross_sensor** — multiple sensor domains (WiFi + BLE + physical) alerting
+  inside one window: coordinated activity
+- **burst** — raw detection volume spiking: an actively hostile environment
+
+Your own gear is excluded via a user-curated allowlist
+(`detection.correlation.allowlist` — inline entries and/or
+`data/trusted_entities.txt`, one MAC per line, optionally `bt:`/`bssid:`
+prefixed), so your smartwatch at strong RSSI all day never reads as a
+tracker. Curate it by hand: do **not** point it at the sensors' `known_*`
+files, which record every device ever seen — a tracker would allowlist
+itself after one sighting.
+
+Every detection is tagged with its Pyramid of Pain band in
+`features.pyramid_level` — `address` (a MAC, trivial for an adversary to
+rotate), `artifact` (SSID/name/vendor), `tool` (tracker-class hardware), or
+`ttp` (behaviour over time, the hardest thing to change). Correlation
+meta-detections are TTP-level by construction: an adversary can rotate a MAC
+every few minutes, but they cannot stop *being near you repeatedly* without
+abandoning the surveillance itself.
+
+## Threat-Intel Enrichment
+Readings are enriched offline (no network calls) before rules run, from
+`config/enrichment.yaml` — a user-extendable seed of OUI→vendor prefixes,
+tracker name patterns, and tracker vendors. Rules can then match what a device
+*is* rather than the literal string it advertises: `vendor`,
+`mac_randomized` (locally-administered bit), `tracker_name_match`, and
+`is_tracker` are all rule-addressable fields. The strongest tracker detector
+is the combination: a randomized-MAC device flagged by enrichment that then
+trips the persistence correlation rule.
 
 ## Runtime Protection
 Running with `--secure` verifies the boot manifest and starts runtime integrity
