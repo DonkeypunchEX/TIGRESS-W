@@ -343,6 +343,17 @@ signals into a TTP-level alert. Network ingestion additionally flags Bvp47-style
 indicators. See [`docs/DEFENSIVE_DOCTRINE.md`](docs/DEFENSIVE_DOCTRINE.md) for
 the philosophy → protocol → method extraction these capabilities implement.
 
+## Audio spectrum analysis (Phyphox)
+Offline analyzer for [Phyphox](https://phyphox.org) "Audio Spectrum" exports —
+useful for triaging a suspicious hum or tone. It finds spectral peaks, fits the
+best fundamental `f0` and its harmonic stack (the signature of ordinary
+rotating machinery), and reports only the *non-harmonic residual* as
+potentially interesting. It also warns when the harmonic spacing matches the
+FFT bin width, i.e. when the "stack" may be a quantization artifact.
+```bash
+python scripts/phyphox_harmonics.py /path/to/Audio_Spectrum_export.zip   # or the unzipped folder
+```
+
 ## Development & Testing
 ```bash
 pip install -r requirements-dev.txt
