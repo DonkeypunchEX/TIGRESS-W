@@ -33,7 +33,11 @@ def config_path(tmp_path):
             "enabled": ["wifi", "phone", "bluetooth"],
             "wifi": {"alert_threshold": 3, "buffer_limit": 50},
             "phone": {"buffer_limit": 50},
-            "bluetooth": {"alert_threshold": 3, "buffer_limit": 50},
+            "bluetooth": {
+                "alert_threshold": 3,
+                "buffer_limit": 50,
+                "known_remote_file": str(tmp_path / "known_remote_ble.txt"),
+            },
         },
         "detection": {
             "confidence_threshold": 0.6,

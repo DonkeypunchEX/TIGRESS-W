@@ -94,6 +94,10 @@ class DetectionEngine:
         self._fitted: Dict[str, bool] = {}
         self._training_data: Dict[str, List] = {"wifi": [], "phone": [], "bluetooth": []}
 
+        # Addresses ever sighted by remote BLE nodes (lazy-loaded from disk),
+        # used to compute new-device counts for ingested scans.
+        self._remote_ble_seen: Optional[set] = None
+
         self._load_models()
 
     def _load_models(self):
@@ -145,6 +149,71 @@ class DetectionEngine:
         detections = self._bluetooth_rules(data[-1]) + self._ml_anomaly(data[-1:], "bluetooth")
         self._dispatch(detections)
         return detections
+
+    def _remote_ble_known_file(self) -> Path:
+        bt_cfg = self.config.get("sensors", {}).get("bluetooth", {})
+        return Path(bt_cfg.get("known_remote_file", "data/known_remote_ble.txt"))
+
+    def _remote_ble_known(self) -> set:
+        if self._remote_ble_seen is None:
+            path = self._remote_ble_known_file()
+            self._remote_ble_seen = (
+                {ln.strip() for ln in path.read_text().splitlines() if ln.strip()}
+                if path.exists()
+                else set()
+            )
+        return self._remote_ble_seen
+
+    def ingest_ble(self, payload) -> Dict[str, int]:
+        """Ingest a BLE scan from a remote sensor node (ESP32/Pi/laptop).
+
+        ``payload`` is ``{"node_id": ..., "devices": [{"address", "name",
+        "rssi"}, ...]}`` or a bare device list. The scan runs through the
+        SAME pipeline as on-device Bluetooth: enrichment, BLE rules, ML, and
+        correlation — the node is a dumb radio, TIGRESS stays the brain.
+        New-device counts are tracked across calls in a persistent seen-set
+        so surge alerting works for remote scans too.
+        """
+        if isinstance(payload, dict):
+            node = str(payload.get("node_id") or "remote")
+            raw = payload.get("devices")
+        elif isinstance(payload, list):
+            node, raw = "remote", payload
+        else:
+            return {"devices": 0, "rejected": 1, "new_devices": 0, "detections": 0}
+
+        devices, rejected = [], 0
+        for dev in raw if isinstance(raw, list) else []:
+            addr = dev.get("address") if isinstance(dev, dict) else None
+            if not addr:
+                rejected += 1
+                continue
+            devices.append({**dev, "address": str(addr).lower(), "node": node})
+        if not isinstance(raw, list):
+            rejected += 1
+
+        known = self._remote_ble_known()
+        new = [d for d in devices if d["address"] not in known]
+        if new:
+            known.update(d["address"] for d in new)
+            path = self._remote_ble_known_file()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join(sorted(known)) + "\n")
+
+        scan = {
+            "devices": devices,
+            "device_count": len(devices),
+            "new_device_count": len(new),
+            "new_devices": [d["address"] for d in new],
+            "node": node,
+        }
+        detections = self.analyze_bluetooth([scan]) if devices else []
+        return {
+            "devices": len(devices),
+            "rejected": rejected,
+            "new_devices": len(new),
+            "detections": len(detections),
+        }
 
     def ingest_network(self, payload) -> Dict[str, int]:
         """Ingest Suricata EVE alert(s) as first-class network detections.
@@ -202,7 +271,10 @@ class DetectionEngine:
                 logger.info(f"Training complete for {stype}")
             return []
 
-        if not self._fitted[stype]:
+        # .get(): a sensor type with no configured model path has no entry at
+        # all — treat it as unfitted rather than crashing (reachable via the
+        # ingest endpoints, which analyze without requiring ML config).
+        if not self._fitted.get(stype):
             return []
 
         X = self._scalers[stype].transform(features)
@@ -344,6 +416,7 @@ class DetectionEngine:
                             "mac_randomized": dev.get("mac_randomized"),
                             "is_tracker": dev.get("is_tracker"),
                             "tracker_name_match": dev.get("tracker_name_match"),
+                            "node": dev.get("node"),  # remote sensor node, if any
                         },
                     ))
 

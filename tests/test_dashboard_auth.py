@@ -20,6 +20,8 @@ def client(monkeypatch):
         detection_engine=SimpleNamespace(
             history=store,
             ingest_network=lambda payload: {"accepted": 1, "rejected": 0},
+            ingest_ble=lambda payload: {"devices": 1, "rejected": 0,
+                                        "new_devices": 0, "detections": 0},
         ),
         list_sensors=lambda: [],
         is_running=True,
@@ -59,10 +61,24 @@ def test_health_is_always_open(client, monkeypatch):
 
 
 def test_ingest_disabled_without_configured_token(client, monkeypatch):
-    # The read endpoints fall open without a token; the write endpoint must not.
+    # The read endpoints fall open without a token; write endpoints must not.
     monkeypatch.setattr(appmod, "_api_token", None)
     r = client.post("/ingest/suricata", json={"event_type": "alert", "alert": {}})
     assert r.status_code == 403
+    r = client.post("/ingest/ble", json={"node_id": "n", "devices": []})
+    assert r.status_code == 403
+
+
+def test_ble_ingest_accepts_valid_token(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_api_token", "s3cr3t")
+    r = client.post(
+        "/ingest/ble",
+        json={"node_id": "bag-pi",
+              "devices": [{"address": "aa:bb:cc:dd:ee:01", "rssi": -60}]},
+        headers={"Authorization": "Bearer s3cr3t"},
+    )
+    assert r.status_code == 200
+    assert r.json()["devices"] == 1
 
 
 def test_ingest_rejects_wrong_token(client, monkeypatch):
