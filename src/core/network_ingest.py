@@ -40,7 +40,7 @@ def _payload_len(event: Dict[str, Any]) -> int:
     if isinstance(payload, str) and payload:
         try:
             return len(base64.b64decode(payload, validate=False))
-        except (ValueError, base64.binascii.Error):
+        except ValueError:  # binascii.Error subclasses ValueError
             pass
     printable = event.get("payload_printable")
     if isinstance(printable, str):

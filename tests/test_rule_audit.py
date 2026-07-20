@@ -37,6 +37,17 @@ def test_rule_with_no_conditions_is_not_flagged():
     assert audit_rules(rules) == []
 
 
+def test_malformed_conditions_do_not_crash():
+    # A hand-edited rules file could set `conditions: true`; len() on a bool
+    # would raise TypeError, so non-list conditions must be treated as empty.
+    rules = {"wifi_rules": [
+        {"id": "bad_bool", "conditions": True},
+        {"id": "bad_int", "conditions": 3},
+        {"id": "missing"},
+    ]}
+    assert audit_rules(rules) == []
+
+
 def test_missing_file_yields_no_findings(tmp_path):
     assert audit_rules_file(str(tmp_path / "nope.yaml")) == []
 

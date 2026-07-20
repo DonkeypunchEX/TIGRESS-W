@@ -133,16 +133,21 @@ signals; convert single-behaviour alerts directly to signals; recombine.
 > recombination layer. This is Liburdi's architecture in miniature.
 
 ### M2. Behavioural anomaly scoring with Isolation Forest (Crook, I-BAD)
-Tag detections with a **phase** and a **weight**, aggregate per-entity scores
-(total weight, distinct phases, distinct detection counts), then feed the raw
-numeric output into an **Isolation Forest** to surface outliers — cutting
-thousands of results to a reviewable few.
+Crook's full I-BAD method tags detections with a **phase** and a **weight**,
+aggregates per-entity scores (total weight, distinct phases, distinct detection
+counts), then feeds the raw numeric output into an **Isolation Forest** to
+surface outliers — cutting thousands of results to a reviewable few.
 
-> *In code:* `detection_engine.py` already trains an `IsolationForest`
-> (`contamination=0.1, n_estimators=100`) with a `StandardScaler`. The
-> extractable *next step* is adding I-BAD-style phase/weight metadata to
-> detections so per-entity behavioural progression can be scored, not just
-> per-reading anomaly.
+> *In code (implemented):* `Detection` carries `phase`/`weight`
+> (`detection_engine.py`), and the correlation engine's `behavioral_progression`
+> rule scores each entity by **cumulative per-phase weight** and **distinct
+> phase count**, emitting a TTP-level meta-detection when both cross their
+> thresholds (`correlation_engine.py`).
+>
+> *Future work:* the deterministic threshold above is the on-device-friendly
+> form. The remaining I-BAD step — feeding per-entity score *vectors* into the
+> `IsolationForest` already trained in `detection_engine.py` to rank outliers,
+> plus distinct-detection-count as a third axis — is not yet wired up.
 
 ### M3. Covert-channel & evasion awareness (Bvp47)
 Top-tier implants hide in places defenders don't look:

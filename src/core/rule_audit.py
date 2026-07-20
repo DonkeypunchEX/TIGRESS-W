@@ -33,8 +33,8 @@ def audit_rules(rules: Dict[str, Any]) -> List[Dict[str, Any]]:
         for rule in rules.get(section) or []:
             if not isinstance(rule, dict):
                 continue
-            conditions = rule.get("conditions") or []
-            if len(conditions) <= 1:
+            conditions = rule.get("conditions")
+            if not isinstance(conditions, list) or len(conditions) <= 1:
                 continue
             fields = [c.get("field") for c in conditions if isinstance(c, dict)]
             findings.append({
@@ -53,8 +53,9 @@ def audit_rules(rules: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def audit_rules_file(path: str) -> List[Dict[str, Any]]:
     """Load a YAML rules file and audit it. Missing file yields no findings."""
-    p = Path(path)
-    if not p.exists():
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
-    data = yaml.safe_load(p.read_text()) or {}
+    data = yaml.safe_load(text) or {}
     return audit_rules(data)
