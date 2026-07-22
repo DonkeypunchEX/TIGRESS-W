@@ -35,8 +35,10 @@ class SecureBoot:
             measurements["kernel"] = hashlib.sha512(Path("/proc/version").read_bytes()).hexdigest()
         except OSError:
             pass
-        python = Path("/data/data/com.termux/files/usr/bin/python")
-        if python.exists():
+        # Measure the running interpreter, wherever it lives (Termux prefix,
+        # a Windows Python install, a system python, ...).
+        python = Path(sys.executable) if sys.executable else None
+        if python and python.exists():
             measurements["python"] = hashlib.sha512(python.read_bytes()).hexdigest()
         for file in TIGRESS_CORE_FILES:
             p = Path(file)

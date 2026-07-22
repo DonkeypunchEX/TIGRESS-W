@@ -42,8 +42,13 @@ several modules:
 
 1. **Sensors** (`src/sensors/`) — subclasses of `BaseSensor`, which owns a
    bounded reading buffer and a subscriber list. Real sensors shell out to
-   Termux API commands; `DummySensor` fabricates readings. Registered in
-   `SENSOR_REGISTRY` in `src/core/sensor_manager.py`.
+   OS scanning tools; `DummySensor` fabricates readings. The backend is chosen
+   per host OS (`src/core/platform.py`): Termux/POSIX sensors in
+   `SENSOR_REGISTRY`, Windows sensors (`src/sensors/windows/`: `netsh wlan` +
+   PowerShell `Get-PnpDevice`) in `WINDOWS_SENSOR_REGISTRY`, selected by
+   `active_sensor_registry()` in `src/core/sensor_manager.py`. Windows has no
+   accelerometer analogue, so the `phone` sensor is skipped there. All sensors
+   emit the same reading schema regardless of platform.
 2. **SensorManager** (`src/core/sensor_manager.py`) — starts/stops configured
    sensors and routes every reading into the `DetectionEngine`.
 3. **DetectionEngine** (`src/core/detection_engine.py`) — the hub. Per reading:
@@ -68,9 +73,11 @@ several modules:
    `known_*` files.
 5. **Outputs** — every detection fans out to the `ForensicLogger` (JSONL,
    rotation + detached SHA-256 sidecars), the `AlertDispatcher`
-   (`src/utils/alerting.py`: pluggable termux/webhook/email channels, each with
-   its own `min_severity`, async worker-thread delivery by default, webhook
-   egress allowlist), the in-memory `DetectionStore` that backs the dashboard's
+   (`src/utils/alerting.py`: pluggable termux/windows/webhook/email channels,
+   each with its own `min_severity`, async worker-thread delivery by default,
+   webhook egress allowlist; the on-device channel — `termux` push or `windows`
+   toast — is picked by `default_local_channel()` and each no-ops off its own
+   platform), the in-memory `DetectionStore` that backs the dashboard's
    `/detections` API, and a durable SQLite `EventStore`
    (`src/core/event_store.py`, stdlib `sqlite3`, parameterized queries only)
    that backs `/events`, `/events/summary`, and `/analytics` across restarts.

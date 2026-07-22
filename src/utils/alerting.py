@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Any, Dict, List, Optional
 
+from src.core.platform import is_windows
 from src.utils.termux_notify import notifier as _default_notifier
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,40 @@ class TermuxChannel(AlertChannel):
             vibrate=severity >= 3,
             ongoing=severity >= 5,
         )
+
+
+class WindowsChannel(AlertChannel):
+    """Deliver via a Windows toast notification (WinRT, on-device)."""
+
+    name = "windows"
+
+    def __init__(self, min_severity: int = 1, notifier=None):
+        super().__init__(min_severity)
+        if notifier is None:
+            # Imported lazily so the module loads on non-Windows hosts too.
+            from src.utils.win_notify import notifier as _win_notifier
+            notifier = _win_notifier
+        self._notifier = notifier
+
+    def send(self, title: str, content: str, severity: int) -> bool:
+        """Deliver via a Windows toast, mapping severity to priority."""
+        priority = "max" if severity >= 5 else "high" if severity >= 4 else "default"
+        return self._notifier.send(
+            title=title,
+            content=content,
+            priority=priority,
+            vibrate=severity >= 3,
+            ongoing=severity >= 5,
+        )
+
+
+def default_local_channel() -> AlertChannel:
+    """Return the on-device alert channel for the host OS.
+
+    Windows hosts get a toast channel; everything else keeps the Termux
+    channel (a harmless no-op when ``termux-notification`` is absent).
+    """
+    return WindowsChannel() if is_windows() else TermuxChannel()
 
 
 class WebhookChannel(AlertChannel):
@@ -293,10 +328,11 @@ class AlertDispatcher:
     def from_config(cls, alerting_cfg: Dict[str, Any]) -> "AlertDispatcher":
         """Build a dispatcher from the ``alerting`` config section.
 
-        When no ``channels`` block is present, defaults to Termux only (the
-        previous behaviour). Otherwise builds each channel whose ``enabled`` is
-        true. ``async_dispatch: true`` delivers alerts on background threads
-        (see ``async_workers`` and ``queue_size``).
+        When no ``channels`` block is present, defaults to the host's on-device
+        channel (a Windows toast on Windows, Termux push elsewhere). Otherwise
+        builds each channel whose ``enabled`` is true. ``async_dispatch: true``
+        delivers alerts on background threads (see ``async_workers`` and
+        ``queue_size``).
         """
         alerting_cfg = alerting_cfg or {}
         async_workers = (
@@ -308,7 +344,7 @@ class AlertDispatcher:
         channels_cfg = alerting_cfg.get("channels")
         if channels_cfg is None:
             return cls(
-                [TermuxChannel()], async_workers=async_workers, queue_size=queue_size,
+                [default_local_channel()], async_workers=async_workers, queue_size=queue_size,
             )
 
         channels: List[AlertChannel] = []
@@ -319,6 +355,8 @@ class AlertDispatcher:
             ms = cfg.get("min_severity", 1)
             if name == "termux":
                 channels.append(TermuxChannel(min_severity=ms))
+            elif name == "windows":
+                channels.append(WindowsChannel(min_severity=ms))
             elif name == "webhook":
                 channels.append(WebhookChannel(
                     cfg.get("url", ""), min_severity=ms, timeout=cfg.get("timeout", 5),

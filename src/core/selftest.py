@@ -21,14 +21,27 @@ import yaml
 
 from src.version import __version__
 
-# Which external CLI each sensor depends on for real telemetry. Hartong's
-# point: detection quality is bounded by visibility, so know which of these are
-# actually present before trusting coverage.
+# Which external CLI each sensor depends on for real telemetry, per host OS.
+# Hartong's point: detection quality is bounded by visibility, so know which of
+# these are actually present before trusting coverage. Windows has no
+# accelerometer analogue, so ``phone`` maps to nothing there.
 _SENSOR_CLIS = {
     "wifi": "termux-wifi-scaninfo",
     "bluetooth": "termux-bluetooth-scaninfo",
     "phone": "termux-sensor",
 }
+
+_WINDOWS_SENSOR_CLIS = {
+    "wifi": "netsh",
+    "bluetooth": "powershell",
+}
+
+
+def _sensor_clis() -> Dict[str, str]:
+    """Return the sensor→CLI dependency map for the current host OS."""
+    from src.core.platform import is_windows
+
+    return _WINDOWS_SENSOR_CLIS if is_windows() else _SENSOR_CLIS
 
 # --------------------------------------------------------------------------- #
 # Frozen golden dataset — changing any of this changes GOLDEN_SHA256 below.
@@ -172,10 +185,11 @@ def visibility_report(config_path: str = "config/config.yaml") -> Dict[str, Any]
     model_paths = detection.get("ml_models", {}) or {}
     alerting = config.get("alerting", {}) or {}
 
+    sensor_clis = _sensor_clis()
     sensors: List[Dict[str, Any]] = []
     warnings: List[str] = []
     for name in enabled:
-        cli = _SENSOR_CLIS.get(name)
+        cli = sensor_clis.get(name)
         cli_available = bool(cli and shutil.which(cli))
         model_path = model_paths.get(name)
         model_trained = bool(model_path and Path(model_path).exists())

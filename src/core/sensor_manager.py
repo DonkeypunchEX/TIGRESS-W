@@ -4,21 +4,37 @@ import threading
 from typing import Callable, Dict, List
 
 from src.core.detection_engine import DetectionEngine
+from src.core.platform import is_windows
 from src.sensors.base_sensor import BaseSensor
 from src.sensors.bluetooth_sensor import BluetoothSensor
 from src.sensors.dummy_sensor import DummySensor
 from src.sensors.phone_sensor import PhoneSensor
 from src.sensors.wifi_sensor import WiFiSensor
+from src.sensors.windows.bluetooth_sensor import WindowsBluetoothSensor
+from src.sensors.windows.wifi_sensor import WindowsWiFiSensor
 from src.utils.config_loader import ConfigLoader
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+#: Termux/Android + POSIX sensor backends (the default target).
 SENSOR_REGISTRY = {
     "wifi": WiFiSensor,
     "phone": PhoneSensor,
     "bluetooth": BluetoothSensor,
 }
+
+#: Windows sensor backends (netsh / PowerShell). No accelerometer analogue, so
+#: the ``phone`` sensor is intentionally absent and skipped on Windows.
+WINDOWS_SENSOR_REGISTRY = {
+    "wifi": WindowsWiFiSensor,
+    "bluetooth": WindowsBluetoothSensor,
+}
+
+
+def active_sensor_registry() -> dict:
+    """Return the sensor registry for the current host OS."""
+    return WINDOWS_SENSOR_REGISTRY if is_windows() else SENSOR_REGISTRY
 
 
 class SensorManager:
@@ -41,6 +57,7 @@ class SensorManager:
     def start_all(self):
         """Connect and start every enabled sensor."""
         cfg = self.config.get("sensors", {})
+        registry = active_sensor_registry()
         for stype in cfg.get("enabled", []):
             scfg = cfg.get(stype, {})
             sid = f"{stype}_sensor"
@@ -48,9 +65,11 @@ class SensorManager:
             if self.dummy:
                 sensor = DummySensor(sid, stype, scfg)
             else:
-                cls = SENSOR_REGISTRY.get(stype)
+                cls = registry.get(stype)
                 if not cls:
-                    logger.warning(f"No sensor class registered for '{stype}'")
+                    logger.warning(
+                        f"No sensor class registered for '{stype}' on this platform"
+                    )
                     continue
                 sensor = cls(sid, scfg)
 

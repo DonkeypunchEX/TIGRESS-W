@@ -88,7 +88,10 @@ alerting:
   async_workers: 2           # number of background delivery threads
   queue_size: 256            # max queued alerts before new ones are dropped with a warning
   channels:                  # pluggable alert delivery; each fires at/above its min_severity
-    termux:
+    termux:                  # on-device push on Android/Termux (no-op elsewhere)
+      enabled: true
+      min_severity: 1
+    windows:                 # native toast on Windows (no-op elsewhere)
       enabled: true
       min_severity: 1
     webhook:

@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Optional, Set
 
 import psutil
 
-from src.utils.alerting import AlertDispatcher, TermuxChannel
+from src.utils.alerting import AlertDispatcher, default_local_channel
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,8 @@ class RuntimeProtection:
         "python", "python3", "bash", "sh",
         "termux-wake-lock", "termux-sensor", "termux-wifi-scaninfo",
         "sshd", "logcat", "uvicorn",
+        # Windows backends: interpreter and the scanning tools sensors invoke.
+        "python.exe", "pythonw.exe", "powershell.exe", "pwsh.exe", "netsh.exe",
     }
 
     def __init__(
@@ -36,7 +38,7 @@ class RuntimeProtection:
         self._thread = None
         self._running = False
         self.violations: List[str] = []
-        self._alerts = alert_dispatcher or AlertDispatcher([TermuxChannel()])
+        self._alerts = alert_dispatcher or AlertDispatcher([default_local_channel()])
 
         # Process monitoring: alarm only on processes that appear *after* a
         # baseline is established and are not on the whitelist.
